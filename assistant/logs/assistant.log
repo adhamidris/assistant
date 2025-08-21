@@ -3016,3 +3016,39 @@ INFO 2025-08-21 17:02:07,281 autoreload 22131 8405688064 Watching for file chang
 INFO 2025-08-21 17:02:20,029 autoreload 22131 8405688064 /Users/adham/assistant/assistant/messaging/views.py changed, reloading.
 INFO 2025-08-21 17:02:20,600 autoreload 22142 8405688064 Watching for file changes with StatReloader
 INFO 2025-08-21 17:03:08,629 autoreload 22425 8405688064 Watching for file changes with StatReloader
+INFO 2025-08-21 20:04:15,579 autoreload 30668 27812 Watching for file changes with StatReloader
+INFO 2025-08-21 20:16:34,399 autoreload 21444 8576 Watching for file changes with StatReloader
+INFO 2025-08-21 20:16:50,598 basehttp 21444 20660 "OPTIONS /api/v1/core/workspaces/52086741-2fc0-481a-8c2a-e0262afacc05/profile-status/ HTTP/1.1" 200 0
+INFO 2025-08-21 20:16:50,933 basehttp 21444 20660 "GET /api/v1/core/workspaces/52086741-2fc0-481a-8c2a-e0262afacc05/profile-status/ HTTP/1.1" 200 172
+INFO 2025-08-21 20:16:50,973 basehttp 21444 33056 "OPTIONS /api/v1/core/conversations/?workspace=52086741-2fc0-481a-8c2a-e0262afacc05 HTTP/1.1" 200 0
+WARNING 2025-08-21 20:16:50,982 log 21444 20660 Unauthorized: /api/v1/calendar/appointments/
+INFO 2025-08-21 20:16:50,983 basehttp 21444 33056 "OPTIONS /api/v1/core/contacts/?workspace=52086741-2fc0-481a-8c2a-e0262afacc05 HTTP/1.1" 200 0
+WARNING 2025-08-21 20:16:50,987 basehttp 21444 20660 "GET /api/v1/calendar/appointments/?workspace=52086741-2fc0-481a-8c2a-e0262afacc05 HTTP/1.1" 401 58
+INFO 2025-08-21 20:16:51,005 basehttp 21444 33056 "OPTIONS /api/v1/messaging/drafts/?pending=true HTTP/1.1" 200 0
+INFO 2025-08-21 20:16:51,255 basehttp 21444 33056 "GET /api/v1/core/contacts/?workspace=52086741-2fc0-481a-8c2a-e0262afacc05 HTTP/1.1" 200 309
+INFO 2025-08-21 20:16:51,270 basehttp 21444 20660 "GET /api/v1/core/conversations/?workspace=52086741-2fc0-481a-8c2a-e0262afacc05 HTTP/1.1" 200 610
+INFO 2025-08-21 20:16:51,524 basehttp 21444 33056 "GET /api/v1/messaging/drafts/?pending=true HTTP/1.1" 200 52
+INFO 2025-08-21 20:16:51,641 basehttp 21444 33056 "OPTIONS /api/v1/notifications/notifications/ HTTP/1.1" 200 0
+INFO 2025-08-21 20:16:51,644 basehttp 21444 1500 "OPTIONS /api/v1/notifications/notifications/unread_count/ HTTP/1.1" 200 0
+INFO 2025-08-21 20:16:51,644 basehttp 21444 19416 "OPTIONS /api/v1/notifications/notifications/ HTTP/1.1" 200 0
+INFO 2025-08-21 20:16:51,646 basehttp 21444 20660 "OPTIONS /api/v1/notifications/notifications/unread_count/ HTTP/1.1" 200 0
+INFO 2025-08-21 20:16:51,866 basehttp 21444 29092 "GET /api/v1/core/conversations/?workspace=52086741-2fc0-481a-8c2a-e0262afacc05 HTTP/1.1" 200 610
+INFO 2025-08-21 20:16:51,867 basehttp 21444 33056 "GET /api/v1/notifications/notifications/unread_count/ HTTP/1.1" 200 18
+INFO 2025-08-21 20:16:51,867 basehttp 21444 20660 "GET /api/v1/notifications/notifications/ HTTP/1.1" 200 2493
+INFO 2025-08-21 20:16:52,052 basehttp 21444 29092 "GET /api/v1/notifications/notifications/ HTTP/1.1" 200 2493
+INFO 2025-08-21 20:16:52,056 basehttp 21444 19416 "GET /api/v1/notifications/notifications/unread_count/ HTTP/1.1" 200 18
+INFO 2025-08-21 20:16:52,108 basehttp 21444 1500 "GET /api/v1/core/conversations/?workspace=52086741-2fc0-481a-8c2a-e0262afacc05 HTTP/1.1" 200 610
+INFO 2025-08-21 20:16:57,848 basehttp 21444 1500 "GET /api/v1/core/workspaces/52086741-2fc0-481a-8c2a-e0262afacc05/profile-status/ HTTP/1.1" 200 172
+WARNING 2025-08-21 20:16:57,877 log 21444 1500 Unauthorized: /api/v1/calendar/appointments/
+WARNING 2025-08-21 20:16:57,892 basehttp 21444 1500 "GET /api/v1/calendar/appointments/?workspace=52086741-2fc0-481a-8c2a-e0262afacc05 HTTP/1.1" 401 58
+INFO 2025-08-21 20:16:58,102 basehttp 21444 33056 "GET /api/v1/messaging/drafts/?pending=true HTTP/1.1" 200 52
+INFO 2025-08-21 20:16:58,111 basehttp 21444 19416 "GET /api/v1/core/conversations/?workspace=52086741-2fc0-481a-8c2a-e0262afacc05 HTTP/1.1" 200 610
+INFO 2025-08-21 20:16:58,112 basehttp 21444 29092 "GET /api/v1/core/contacts/?workspace=52086741-2fc0-481a-8c2a-e0262afacc05 HTTP/1.1" 200 309
+INFO 2025-08-21 20:16:58,359 basehttp 21444 19416 "GET /api/v1/notifications/notifications/ HTTP/1.1" 200 2493
+INFO 2025-08-21 20:16:58,400 basehttp 21444 33056 "GET /api/v1/core/conversations/?workspace=52086741-2fc0-481a-8c2a-e0262afacc05 HTTP/1.1" 200 610
+INFO 2025-08-21 20:16:58,465 basehttp 21444 29092 "GET /api/v1/notifications/notifications/unread_count/ HTTP/1.1" 200 18
+INFO 2025-08-21 20:16:58,500 basehttp 21444 1500 "GET /api/v1/notifications/notifications/ HTTP/1.1" 200 2493
+INFO 2025-08-21 20:16:58,521 basehttp 21444 19416 "GET /api/v1/core/conversations/?workspace=52086741-2fc0-481a-8c2a-e0262afacc05 HTTP/1.1" 200 610
+INFO 2025-08-21 20:16:58,538 basehttp 21444 33056 "GET /api/v1/notifications/notifications/unread_count/ HTTP/1.1" 200 18
+INFO 2025-08-21 20:17:03,873 basehttp 21444 33056 "OPTIONS /api/v1/messaging/messages/?conversation=1c81ba53-4e35-4fe7-8bcf-69720564da8b HTTP/1.1" 200 0
+INFO 2025-08-21 20:17:04,322 basehttp 21444 33056 "GET /api/v1/messaging/messages/?conversation=1c81ba53-4e35-4fe7-8bcf-69720564da8b HTTP/1.1" 200 8664

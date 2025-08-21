@@ -207,7 +207,7 @@ AWS_S3_REGION_NAME = config('S3_REGION', default='us-east-1')
 
 # AI Services Configuration
 OPENAI_API_KEY = config('OPENAI_API_KEY', default='')
-DEEPSEEK_API_KEY = config('DEEPSEEK_API_KEY', default='sk-8283fa77a01e4f859b8491eff28ef6a3')
+DEEPSEEK_API_KEY = config('DEEPSEEK_API_KEY', default='')
 AI_PROVIDER = config('AI_PROVIDER', default='deepseek')
 
 # Email Configuration

@@ -266,7 +266,7 @@ yarn-error.log*
 
 # TypeScript
 *.tsbuildinfo
-next-env.d.ts
+# next-env.d.ts  # COMMENTED OUT - This is needed for Next.js projects
 
 # =============================================================================
 # DATABASE FILES
@@ -362,7 +362,7 @@ jspm_packages/
 dist
 
 # Gatsby files
-public
+# public  # COMMENTED OUT - This would ignore the public directory needed for Next.js
 
 # Vuepress build output
 .vuepress/dist
@@ -461,11 +461,11 @@ models/
 *.pkl
 *.joblib
 
-# Large data files
+# Large data files (but NOT package.json, tsconfig.json, etc.)
 data/
 datasets/
 *.csv
-*.json
+# *.json  # COMMENTED OUT - This would ignore package.json, tsconfig.json, etc.
 *.xml
 
 # Cache directories
@@ -483,7 +483,7 @@ uploads/
 
 # Git
 .git/
-.gitattributes
+# .gitattributes  # COMMENTED OUT - This would ignore .gitattributes file
 
 # =============================================================================
 # BACKUP AND ARCHIVE

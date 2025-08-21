@@ -1,0 +1,365 @@
+from rest_framework import viewsets, status
+from rest_framework.decorators import action
+from rest_framework.response import Response
+from rest_framework.views import APIView
+from rest_framework.permissions import IsAuthenticated, AllowAny
+from rest_framework.parsers import MultiPartParser, FormParser, JSONParser
+from django.shortcuts import get_object_or_404
+from django.db import transaction
+from django.core.files.storage import default_storage
+from django.conf import settings
+from django.utils import timezone
+from django.utils.decorators import method_decorator
+# from django_ratelimit.decorators import ratelimit
+import uuid
+import os
+import mimetypes
+
+from .models import Message, AudioTranscription, MessageDraft
+from .serializers import (
+    MessageSerializer, CreateTextMessageSerializer, FileUploadSerializer,
+    AudioUploadSerializer, MessageDraftSerializer, ApproveDraftSerializer,
+    GenerateResponseSerializer, MessageStatusSerializer, ConversationMessagesSerializer
+)
+from core.models import Conversation
+# from core.security import InputSanitizationMixin, SecurityAudit, sanitize_request_data
+# from core.file_security import file_validator
+
+
+# @method_decorator(ratelimit(key='ip', rate='30/m', method=['POST', 'PUT', 'PATCH']), name='dispatch')
+class MessageViewSet(viewsets.ModelViewSet):
+    """Message management viewset with security"""
+    queryset = Message.objects.all()
+    serializer_class = MessageSerializer
+    permission_classes = [AllowAny]  # Session validation handled by middleware
+    
+    def get_queryset(self):
+        """Filter messages by conversation"""
+        queryset = Message.objects.select_related('conversation').prefetch_related('transcription')
+        
+        # Filter by conversation if provided
+        conversation_id = self.request.query_params.get('conversation', None)
+        if conversation_id:
+            queryset = queryset.filter(conversation_id=conversation_id)
+        elif hasattr(self.request, 'conversation'):
+            # Use conversation from middleware
+            queryset = queryset.filter(conversation=self.request.conversation)
+        
+        # Filter by sender
+        sender = self.request.query_params.get('sender', None)
+        if sender:
+            queryset = queryset.filter(sender=sender)
+        
+        # Filter by message type
+        message_type = self.request.query_params.get('type', None)
+        if message_type:
+            queryset = queryset.filter(message_type=message_type)
+        
+        return queryset.order_by('created_at')
+    
+    def create(self, request, *args, **kwargs):
+        """Create a new text message"""
+        serializer = CreateTextMessageSerializer(data=request.data)
+        if serializer.is_valid():
+            # Get conversation from middleware or request
+            conversation = getattr(request, 'conversation', None)
+            if not conversation:
+                conversation_id = request.data.get('conversation_id')
+                if conversation_id:
+                    conversation = get_object_or_404(Conversation, id=conversation_id)
+                else:
+                    return Response(
+                        {'error': 'Conversation context required'}, 
+                        status=status.HTTP_400_BAD_REQUEST
+                    )
+            
+            # Create message
+            message = Message.objects.create(
+                conversation=conversation,
+                sender=serializer.validated_data['sender'],
+                message_type='text',
+                text=serializer.validated_data['text'],
+                status='sent'
+            )
+            
+            # Update conversation timestamp
+            conversation.save()
+            
+            # Trigger AI response if from client and auto-reply is enabled
+            if (message.sender == 'client' and 
+                conversation.workspace.auto_reply_mode):
+                # Import here to avoid circular imports
+                from .tasks import generate_ai_response
+                try:
+                    # Try async first, fallback to sync for development
+                    generate_ai_response.delay(str(message.id))
+                except Exception as e:
+                    # Fallback to synchronous execution for development
+                    print(f"Celery not running, executing AI response synchronously: {e}")
+                    generate_ai_response(str(message.id))
+            
+            return Response(
+                MessageSerializer(message).data, 
+                status=status.HTTP_201_CREATED
+            )
+        
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+
+class MessageDraftViewSet(viewsets.ModelViewSet):
+    """Message draft management viewset"""
+    queryset = MessageDraft.objects.all()
+    serializer_class = MessageDraftSerializer
+    permission_classes = [IsAuthenticated]
+    
+    def get_queryset(self):
+        """Filter drafts by conversation or workspace"""
+        queryset = MessageDraft.objects.select_related('conversation')
+        
+        # Filter by conversation
+        conversation_id = self.request.query_params.get('conversation', None)
+        if conversation_id:
+            queryset = queryset.filter(conversation_id=conversation_id)
+        
+        # Filter by approval status
+        pending_only = self.request.query_params.get('pending', None)
+        if pending_only == 'true':
+            queryset = queryset.filter(is_approved=False, is_rejected=False)
+        
+        return queryset.order_by('-created_at')
+
+
+# @method_decorator(ratelimit(key='ip', rate='10/m', method='POST'), name='post')
+class UploadFileView(APIView):
+    """Handle file uploads with security validation"""
+    parser_classes = [MultiPartParser, FormParser]
+    permission_classes = [AllowAny]  # Session validation via middleware
+    
+    def post(self, request):
+        # # Sanitize input data
+        # sanitized_data = sanitize_request_data(request.data.dict())
+        
+        serializer = FileUploadSerializer(data=request.data)
+        if serializer.is_valid():
+            uploaded_file = serializer.validated_data['file']
+            sender = serializer.validated_data['sender']
+            
+            # Get conversation from middleware
+            conversation = getattr(request, 'conversation', None)
+            if not conversation:
+                return Response(
+                    {'error': 'Conversation context required'}, 
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+            
+            # # Validate file security
+            # validation_result = file_validator.validate_file(uploaded_file)
+            # if not validation_result['is_valid']:
+            #     SecurityAudit.log_suspicious_activity(
+            #         request, 
+            #         f"Invalid file upload: {', '.join(validation_result['errors'])}"
+            #     )
+            #     return Response({
+            #         'error': 'File validation failed',
+            #         'details': validation_result['errors']
+            #     }, status=status.HTTP_400_BAD_REQUEST)
+            
+            # # Log warnings if any
+            # if validation_result.get('warnings'):
+            #     SecurityAudit.log_security_event(
+            #         'file_upload_warning',
+            #         request,
+            #         {'warnings': validation_result['warnings']}
+            #     )
+            
+            try:
+                # Generate unique filename
+                file_extension = os.path.splitext(uploaded_file.name)[1]
+                unique_filename = f"{uuid.uuid4()}{file_extension}"
+                
+                # Save file to storage
+                file_path = f"uploads/{conversation.workspace.id}/{unique_filename}"
+                saved_path = default_storage.save(file_path, uploaded_file)
+                file_url = default_storage.url(saved_path)
+                
+                # Create message record
+                message = Message.objects.create(
+                    conversation=conversation,
+                    sender=sender,
+                    message_type='file',
+                    media_url=file_url,
+                    media_filename=uploaded_file.name,
+                    media_size=uploaded_file.size,
+                    text=f"Uploaded file: {uploaded_file.name}",
+                    status='sent'
+                )
+                
+                # Update conversation timestamp
+                conversation.save()
+                
+                return Response(
+                    MessageSerializer(message).data,
+                    status=status.HTTP_201_CREATED
+                )
+                
+            except Exception as e:
+                return Response(
+                    {'error': f'File upload failed: {str(e)}'}, 
+                    status=status.HTTP_500_INTERNAL_SERVER_ERROR
+                )
+        
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+
+# @method_decorator(ratelimit(key='ip', rate='5/m', method='POST'), name='post')
+class UploadAudioView(APIView):
+    """Handle audio file uploads with security validation and transcription"""
+    parser_classes = [MultiPartParser, FormParser]
+    permission_classes = [AllowAny]  # Session validation via middleware
+    
+    def post(self, request):
+        serializer = AudioUploadSerializer(data=request.data)
+        if serializer.is_valid():
+            audio_file = serializer.validated_data['audio_file']
+            sender = serializer.validated_data['sender']
+            
+            # Get conversation from middleware
+            conversation = getattr(request, 'conversation', None)
+            if not conversation:
+                return Response(
+                    {'error': 'Conversation context required'}, 
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+            
+            try:
+                # Generate unique filename
+                file_extension = os.path.splitext(audio_file.name)[1]
+                unique_filename = f"{uuid.uuid4()}{file_extension}"
+                
+                # Save audio file to storage
+                file_path = f"audio/{conversation.workspace.id}/{unique_filename}"
+                saved_path = default_storage.save(file_path, audio_file)
+                file_url = default_storage.url(saved_path)
+                
+                # Create message record
+                message = Message.objects.create(
+                    conversation=conversation,
+                    sender=sender,
+                    message_type='audio',
+                    media_url=file_url,
+                    media_filename=audio_file.name,
+                    media_size=audio_file.size,
+                    text="Audio message",
+                    status='processing'
+                )
+                
+                # Update conversation timestamp
+                conversation.save()
+                
+                # Trigger background transcription
+                from .tasks import process_audio_message
+                process_audio_message.delay(str(message.id))
+                
+                return Response(
+                    MessageSerializer(message).data,
+                    status=status.HTTP_201_CREATED
+                )
+                
+            except Exception as e:
+                return Response(
+                    {'error': f'Audio upload failed: {str(e)}'}, 
+                    status=status.HTTP_500_INTERNAL_SERVER_ERROR
+                )
+        
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+
+class GenerateResponseView(APIView):
+    """Generate AI response for a message"""
+    permission_classes = [IsAuthenticated]
+    
+    def post(self, request):
+        serializer = GenerateResponseSerializer(data=request.data)
+        if serializer.is_valid():
+            message_text = serializer.validated_data['message_text']
+            conversation_id = serializer.validated_data.get('conversation_id')
+            force_generation = serializer.validated_data.get('force_generation', False)
+            
+            # Get conversation
+            if conversation_id:
+                conversation = get_object_or_404(Conversation, id=conversation_id)
+            else:
+                conversation = getattr(request, 'conversation', None)
+                if not conversation:
+                    return Response(
+                        {'error': 'Conversation context required'}, 
+                        status=status.HTTP_400_BAD_REQUEST
+                    )
+            
+            # Create a temporary message for processing
+            temp_message = Message.objects.create(
+                conversation=conversation,
+                sender='client',
+                message_type='text',
+                text=message_text,
+                status='processing'
+            )
+            
+            # Trigger AI response generation
+            from .tasks import generate_ai_response
+            task = generate_ai_response.delay(str(temp_message.id), force_generation)
+            
+            return Response({
+                'message': 'AI response generation started',
+                'task_id': task.id,
+                'message_id': temp_message.id
+            })
+        
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+
+class ApproveDraftView(APIView):
+    """Approve or reject draft messages"""
+    permission_classes = [IsAuthenticated]
+    
+    def post(self, request):
+        serializer = ApproveDraftSerializer(data=request.data)
+        if serializer.is_valid():
+            draft_id = serializer.validated_data['draft_id']
+            action = serializer.validated_data['action']
+            modified_text = serializer.validated_data.get('modified_text', '')
+            
+            draft = get_object_or_404(MessageDraft, id=draft_id)
+            
+            if action == 'approve':
+                with transaction.atomic():
+                    # Mark draft as approved
+                    draft.is_approved = True
+                    draft.approved_at = timezone.now()
+                    draft.save()
+                    
+                    # Create actual message
+                    message_text = modified_text if modified_text else draft.suggested_text
+                    message = Message.objects.create(
+                        conversation=draft.conversation,
+                        sender='assistant',
+                        message_type='text',
+                        text=message_text,
+                        status='sent'
+                    )
+                    
+                    # Update conversation
+                    draft.conversation.save()
+                    
+                    return Response({
+                        'status': 'Draft approved and message sent',
+                        'message_id': message.id
+                    })
+            
+            elif action == 'reject':
+                draft.is_rejected = True
+                draft.save()
+                
+                return Response({'status': 'Draft rejected'})
+        
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)

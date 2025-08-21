@@ -3006,3 +3006,13 @@ INFO 2025-08-21 16:14:29,059 autoreload 34432 23932 Watching for file changes wi
 INFO 2025-08-21 19:43:21,261 autoreload 34432 23932 C:\Users\adham\OneDrive\Desktop\assistantfinal\assistant\assistant\settings.py changed, reloading.
 INFO 2025-08-21 19:43:52,088 autoreload 15112 27504 Watching for file changes with StatReloader
 INFO 2025-08-21 19:48:02,240 autoreload 32764 20960 Watching for file changes with StatReloader
+INFO 2025-08-21 17:00:08,576 autoreload 21614 8405688064 Watching for file changes with StatReloader
+INFO 2025-08-21 17:01:22,015 autoreload 21614 8405688064 /Users/adham/assistant/assistant/messaging/views.py changed, reloading.
+INFO 2025-08-21 17:01:22,764 autoreload 21660 8405688064 Watching for file changes with StatReloader
+INFO 2025-08-21 17:01:27,024 autoreload 21660 8405688064 /Users/adham/assistant/assistant/messaging/views.py changed, reloading.
+INFO 2025-08-21 17:01:27,576 autoreload 21672 8405688064 Watching for file changes with StatReloader
+INFO 2025-08-21 17:02:06,450 autoreload 21672 8405688064 /Users/adham/assistant/assistant/messaging/views.py changed, reloading.
+INFO 2025-08-21 17:02:07,281 autoreload 22131 8405688064 Watching for file changes with StatReloader
+INFO 2025-08-21 17:02:20,029 autoreload 22131 8405688064 /Users/adham/assistant/assistant/messaging/views.py changed, reloading.
+INFO 2025-08-21 17:02:20,600 autoreload 22142 8405688064 Watching for file changes with StatReloader
+INFO 2025-08-21 17:03:08,629 autoreload 22425 8405688064 Watching for file changes with StatReloader

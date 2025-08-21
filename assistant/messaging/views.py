@@ -1,5 +1,5 @@
 from rest_framework import viewsets, status
-from rest_framework.decorators import action
+from rest_framework.decorators import action, api_view, permission_classes
 from rest_framework.response import Response
 from rest_framework.views import APIView
 from rest_framework.permissions import IsAuthenticated, AllowAny
@@ -277,6 +277,88 @@ class MessageViewSet(viewsets.ModelViewSet):
                 logger.error(f"Failed to create conversation context: {str(e)}")
             
             return None
+
+
+@api_view(['GET'])
+@permission_classes([AllowAny])
+def session_messages(request):
+    """Get messages for a session"""
+    session_token = request.GET.get('session_token')
+    conversation_id = request.GET.get('conversation_id')
+    
+    if not session_token:
+        return Response(
+            {'error': 'Session token is required'}, 
+            status=status.HTTP_400_BAD_REQUEST
+        )
+    
+    try:
+        # Get session from middleware or validate session
+        session = getattr(request, 'session_obj', None)
+        
+        if not session:
+            # Try to get session by token
+            from core.models import Session
+            try:
+                session = Session.objects.get(session_token=session_token)
+            except Session.DoesNotExist:
+                return Response(
+                    {'error': 'Invalid session token'}, 
+                    status=status.HTTP_401_UNAUTHORIZED
+                )
+        
+        # Get conversation
+        if conversation_id:
+            try:
+                conversation = Conversation.objects.get(
+                    id=conversation_id, 
+                    session=session
+                )
+            except Conversation.DoesNotExist:
+                return Response(
+                    {'error': 'Conversation not found'}, 
+                    status=status.HTTP_404_NOT_FOUND
+                )
+        else:
+            # Get latest conversation for session
+            conversation = session.conversations.order_by('-created_at').first()
+            
+            if not conversation:
+                return Response({
+                    'conversation_id': None,
+                    'messages': [],
+                    'total_messages': 0
+                })
+        
+        # Get messages for conversation
+        messages = Message.objects.filter(
+            conversation=conversation
+        ).order_by('created_at')
+        
+        # Apply pagination
+        page_size = min(int(request.GET.get('page_size', 50)), 100)
+        page = int(request.GET.get('page', 1))
+        start = (page - 1) * page_size
+        end = start + page_size
+        
+        paginated_messages = messages[start:end]
+        serializer = MessageSerializer(paginated_messages, many=True)
+        
+        return Response({
+            'conversation_id': str(conversation.id),
+            'messages': serializer.data,
+            'total_messages': messages.count(),
+            'page': page,
+            'page_size': page_size,
+            'has_next': end < messages.count(),
+            'has_previous': page > 1
+        })
+        
+    except Exception as e:
+        return Response(
+            {'error': f'Failed to get session messages: {str(e)}'}, 
+            status=status.HTTP_500_INTERNAL_SERVER_ERROR
+        )
 
 
 class MessageDraftViewSet(viewsets.ModelViewSet):

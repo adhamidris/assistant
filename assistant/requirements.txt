@@ -31,7 +31,7 @@ PyJWT==2.10.1
 cryptography==43.0.3
 phonenumbers==8.13.51
 django-ratelimit==4.1.0
-django-bleach==3.1.0
+
 django-csp==4.0
 
 # Google Calendar Integration
@@ -57,7 +57,7 @@ gunicorn==23.0.0
 uvicorn==0.32.1
 
 # Additional security (optional but recommended)
-bleach==6.2.0
+
 
 # Monitoring and logging (optional)
 sentry-sdk==2.19.2

@@ -25,6 +25,15 @@ from core.models import Conversation
 # from core.security import InputSanitizationMixin, SecurityAudit, sanitize_request_data
 # from core.file_security import file_validator
 
+# Import context tracking components
+try:
+    from context_tracking.models import ConversationContext
+    from context_tracking.services import ContextExtractionService, RuleEngineService
+    from context_tracking.ai_integration import ContextAwareIntentClassifier
+    CONTEXT_TRACKING_AVAILABLE = True
+except ImportError:
+    CONTEXT_TRACKING_AVAILABLE = False
+
 
 # @method_decorator(ratelimit(key='ip', rate='30/m', method=['POST', 'PUT', 'PATCH']), name='dispatch')
 class MessageViewSet(viewsets.ModelViewSet):
@@ -85,6 +94,10 @@ class MessageViewSet(viewsets.ModelViewSet):
             # Update conversation timestamp
             conversation.save()
             
+            # Enhanced context processing for client messages
+            if message.sender == 'client' and CONTEXT_TRACKING_AVAILABLE:
+                self._process_message_context(message)
+            
             # Trigger AI response if from client and auto-reply is enabled
             if (message.sender == 'client' and 
                 conversation.workspace.auto_reply_mode):
@@ -104,6 +117,166 @@ class MessageViewSet(viewsets.ModelViewSet):
             )
         
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+    
+    @action(detail=True, methods=['post'])
+    def extract_context(self, request, pk=None):
+        """Manually trigger context extraction for a message"""
+        if not CONTEXT_TRACKING_AVAILABLE:
+            return Response(
+                {'error': 'Context tracking not available'}, 
+                status=status.HTTP_501_NOT_IMPLEMENTED
+            )
+        
+        message = self.get_object()
+        
+        if message.sender != 'client':
+            return Response(
+                {'error': 'Context extraction only available for client messages'}, 
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        try:
+            # Get conversation context
+            conversation_context = self._get_or_create_conversation_context(message.conversation)
+            
+            if not conversation_context:
+                return Response(
+                    {'error': 'No context schema available for this conversation'}, 
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+            
+            # Force context extraction
+            extraction_service = ContextExtractionService()
+            result = extraction_service.extract_context_from_text(
+                context=conversation_context,
+                text=message.text,
+                force_extraction=True
+            )
+            
+            if result.get('success'):
+                return Response({
+                    'success': True,
+                    'message': 'Context extraction completed',
+                    'extracted_fields': result.get('extracted_fields', {}),
+                    'confidence_scores': result.get('confidence_scores', {}),
+                    'context_id': str(conversation_context.id)
+                })
+            else:
+                return Response({
+                    'success': False,
+                    'error': result.get('error', 'Context extraction failed')
+                }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+        
+        except Exception as e:
+            return Response({
+                'success': False,
+                'error': str(e)
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+    
+    def _process_message_context(self, message):
+        """Process message for context extraction and business rules"""
+        try:
+            # Get or create conversation context
+            conversation_context = self._get_or_create_conversation_context(message.conversation)
+            
+            if not conversation_context:
+                return
+            
+            # Extract context from message text if it's meaningful
+            if message.text and len(message.text.strip()) > 10:
+                # Schedule async context extraction
+                from django.db import transaction
+                
+                def extract_context():
+                    try:
+                        extraction_service = ContextExtractionService()
+                        extraction_service.extract_context_from_text(
+                            context=conversation_context,
+                            text=message.text,
+                            force_extraction=False
+                        )
+                        
+                        # Trigger business rules
+                        rule_engine = RuleEngineService()
+                        rule_engine.evaluate_new_message(
+                            context=conversation_context,
+                            message_data={
+                                'id': str(message.id),
+                                'text': message.text,
+                                'sender': message.sender,
+                                'message_type': message.message_type,
+                                'created_at': message.created_at.isoformat()
+                            }
+                        )
+                        
+                    except Exception as e:
+                        import logging
+                        logger = logging.getLogger(__name__)
+                        logger.error(f"Context processing failed for message {message.id}: {str(e)}")
+                
+                # Schedule extraction after transaction commits
+                transaction.on_commit(extract_context)
+            
+            # Enhanced intent classification with context
+            try:
+                classifier = ContextAwareIntentClassifier()
+                intent, confidence, context_updates = classifier.classify_with_context(
+                    message.text, conversation_context
+                )
+                
+                # Update message with enhanced intent
+                message.intent_classification = intent
+                message.confidence_score = confidence
+                message.save(update_fields=['intent_classification', 'confidence_score'])
+                
+                # Apply context updates if any
+                if context_updates:
+                    for field_id, value in context_updates.items():
+                        conversation_context.set_field_value(
+                            field_id, value, confidence, is_ai_update=True
+                        )
+                    conversation_context.save()
+                
+            except Exception as e:
+                import logging
+                logger = logging.getLogger(__name__)
+                logger.error(f"Intent classification failed for message {message.id}: {str(e)}")
+            
+        except Exception as e:
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.error(f"Message context processing failed for {message.id}: {str(e)}")
+    
+    def _get_or_create_conversation_context(self, conversation):
+        """Get or create conversation context"""
+        try:
+            return ConversationContext.objects.get(conversation=conversation)
+        except ConversationContext.DoesNotExist:
+            # Should be created by signals, but as fallback
+            try:
+                from context_tracking.models import WorkspaceContextSchema
+                
+                default_schema = WorkspaceContextSchema.objects.filter(
+                    workspace=conversation.workspace,
+                    is_default=True,
+                    is_active=True
+                ).first()
+                
+                if default_schema:
+                    return ConversationContext.objects.create(
+                        conversation=conversation,
+                        schema=default_schema,
+                        title="",
+                        context_data={},
+                        status="new",
+                        priority="medium"
+                    )
+            except Exception as e:
+                import logging
+                logger = logging.getLogger(__name__)
+                logger.error(f"Failed to create conversation context: {str(e)}")
+            
+            return None
 
 
 class MessageDraftViewSet(viewsets.ModelViewSet):

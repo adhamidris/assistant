@@ -50,6 +50,7 @@ INSTALLED_APPS = [
     'knowledge_base',
     'calendar_integration',
     'notifications',
+    'context_tracking',
 ]
 
 # Custom user model - temporarily disabled for migration

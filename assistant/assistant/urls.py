@@ -13,5 +13,6 @@ urlpatterns = [
         path('knowledge-base/', include('knowledge_base.urls')),
         path('calendar/', include('calendar_integration.urls')),
         path('notifications/', include('notifications.urls')),
+        path('context/', include('context_tracking.urls')),
     ])),
 ]

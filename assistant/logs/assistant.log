@@ -3016,3 +3016,5 @@ INFO 2025-08-21 17:02:07,281 autoreload 22131 8405688064 Watching for file chang
 INFO 2025-08-21 17:02:20,029 autoreload 22131 8405688064 /Users/adham/assistant/assistant/messaging/views.py changed, reloading.
 INFO 2025-08-21 17:02:20,600 autoreload 22142 8405688064 Watching for file changes with StatReloader
 INFO 2025-08-21 17:03:08,629 autoreload 22425 8405688064 Watching for file changes with StatReloader
+INFO 2025-08-21 17:15:06,031 autoreload 24534 8405688064 Watching for file changes with StatReloader
+INFO 2025-08-21 17:15:35,796 autoreload 24813 8405688064 Watching for file changes with StatReloader

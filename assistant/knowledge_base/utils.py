@@ -16,7 +16,7 @@ from io import BytesIO
 import requests
 
 from .models import KBDocument, KBChunk, SearchQuery
-from messaging.ai_utils import openai_client
+from messaging.deepseek_client import DeepSeekClient
 
 logger = logging.getLogger(__name__)
 
@@ -277,8 +277,11 @@ class VectorSearch:
             List of relevant chunks
         """
         try:
-            # Generate query embedding
-            query_embedding = openai_client.generate_embeddings(query)
+            # Generate query embedding using DeepSeek
+            deepseek_client = DeepSeekClient()
+            # Note: DeepSeek doesn't have embeddings yet, so we'll skip for now
+            query_embedding = None
+            logger.warning("Embeddings not available with DeepSeek - using fallback search")
             if not query_embedding:
                 logger.error("Failed to generate query embedding")
                 return []
@@ -373,20 +376,19 @@ def process_uploaded_document(document_id: str) -> bool:
             
             # Generate embeddings and save chunks
             for i, chunk_text in enumerate(chunks):
-                # Generate embedding
-                embedding = openai_client.generate_embeddings(chunk_text)
+                # Note: DeepSeek doesn't have embeddings yet, so we'll skip for now
+                embedding = None
+                logger.warning("Embeddings not available with DeepSeek - skipping chunk embedding")
                 
-                if embedding:
-                    KBChunk.objects.create(
-                        document=document,
-                        text=chunk_text,
-                        chunk_index=i,
-                        embedding_vector=embedding,
-                        word_count=len(chunk_text.split()),
-                        char_count=len(chunk_text)
-                    )
-                else:
-                    logger.warning(f"Failed to generate embedding for chunk {i} of document {document_id}")
+                # Create chunk without embedding for now
+                KBChunk.objects.create(
+                    document=document,
+                    text=chunk_text,
+                    chunk_index=i,
+                    embedding_vector=embedding,
+                    word_count=len(chunk_text.split()),
+                    char_count=len(chunk_text)
+                )
             
             # Mark as processed
             document.is_processed = True

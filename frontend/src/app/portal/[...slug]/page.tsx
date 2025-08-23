@@ -17,13 +17,28 @@ interface WorkspaceData {
   portal_slug: string
 }
 
+interface AIAgent {
+  id: string
+  name: string
+  slug: string
+  description: string
+  channel_type: string
+  is_active: boolean
+  is_default: boolean
+  generated_prompt: string
+  business_context: any
+  personality_config: any
+}
+
 function CustomPortalContent() {
   const params = useParams()
   const searchParams = useSearchParams()
   const [workspaceData, setWorkspaceData] = useState<WorkspaceData | null>(null)
+  const [agents, setAgents] = useState<AIAgent[]>([])
+  const [selectedAgent, setSelectedAgent] = useState<AIAgent | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
-  const [step, setStep] = useState<'phone' | 'chat'>('phone')
+  const [step, setStep] = useState<'agents' | 'phone' | 'chat'>('agents')
   const [phoneNumber, setPhoneNumber] = useState('')
   const [isLoading, setIsLoading] = useState(false)
   const [sessionData, setSessionData] = useState<any>(null)
@@ -37,15 +52,133 @@ function CustomPortalContent() {
         
         console.log('Resolving portal slug:', slugPath)
         
-        // Call the backend API to resolve the slug
-        const response = await fetch(`${API_BASE_URL}/api/v1/core/portal-resolve/${slugPath}/`)
-        const data = await response.json()
-        
-        if (data.found) {
-          setWorkspaceData(data)
-          console.log('Portal resolved:', data)
+        // Check if this is a specific agent URL (workspace/agent)
+        if (slugArray.length === 2) {
+          const [workspaceSlug, agentSlug] = slugArray
+          
+          // First resolve the workspace
+          const workspaceResponse = await fetch(`${API_BASE_URL}/api/v1/core/portal-resolve/${workspaceSlug}/`)
+          const workspaceData = await workspaceResponse.json()
+          
+          if (workspaceData.found) {
+            setWorkspaceData(workspaceData)
+            
+            // Then get the specific agent using the workspace ID from the response
+            const agentResponse = await fetch(`${API_BASE_URL}/api/v1/core/workspaces/${workspaceData.workspace_id}/agents/`)
+            const agentsData = await agentResponse.json()
+            
+            const agent = agentsData.results?.find((a: AIAgent) => a.slug === agentSlug && a.is_active)
+            if (agent) {
+              setSelectedAgent(agent)
+              setStep('phone') // Skip agent selection, go directly to phone input
+            } else {
+              setError('Agent not found or inactive. Please check the URL and try again.')
+            }
+          } else {
+            // Try alternative resolution methods for workspace
+            console.log('Direct workspace resolution failed, trying alternative methods...')
+            
+            try {
+              const workspacesResponse = await fetch(`${API_BASE_URL}/api/v1/core/test-portal/`)
+              const workspacesData = await workspacesResponse.json()
+              
+              if (workspacesData.workspaces) {
+                const matchingWorkspace = workspacesData.workspaces.find(
+                  (ws: any) => ws.name.toLowerCase() === workspaceSlug.toLowerCase() || 
+                               ws.simple_slug === workspaceSlug ||
+                               ws.id === workspaceSlug
+                )
+                
+                if (matchingWorkspace) {
+                  const fallbackData = {
+                    workspace_id: matchingWorkspace.id,
+                    workspace_name: matchingWorkspace.name,
+                    assistant_name: 'AI Assistant',
+                    portal_slug: matchingWorkspace.simple_slug
+                  }
+                  
+                  setWorkspaceData(fallbackData)
+                  
+                  // Then get the specific agent
+                  const agentResponse = await fetch(`${API_BASE_URL}/api/v1/core/workspaces/${matchingWorkspace.id}/agents/`)
+                  const agentsData = await agentResponse.json()
+                  
+                  const agent = agentsData.results?.find((a: AIAgent) => a.slug === agentSlug && a.is_active)
+                  if (agent) {
+                    setSelectedAgent(agent)
+                    setStep('phone') // Skip agent selection, go directly to phone input
+                  } else {
+                    setError('Agent not found or inactive. Please check the URL and try again.')
+                  }
+                } else {
+                  setError('Workspace not found. Please check the URL and try again.')
+                }
+              } else {
+                setError('Workspace not found. Please check the URL and try again.')
+              }
+            } catch (fallbackError) {
+              console.error('Fallback workspace resolution also failed:', fallbackError)
+              setError('Workspace not found. Please check the URL and try again.')
+            }
+          }
         } else {
-          setError('Portal not found. Please check the URL and try again.')
+          // Single slug - resolve workspace and show agent directory
+          const response = await fetch(`${API_BASE_URL}/api/v1/core/portal-resolve/${slugPath}/`)
+          const data = await response.json()
+          
+          if (data.found) {
+            setWorkspaceData(data)
+            
+            // Load agents for this workspace using the workspace ID from the response
+            const agentsResponse = await fetch(`${API_BASE_URL}/api/v1/core/workspaces/${data.workspace_id}/agents/`)
+            const agentsData = await agentsResponse.json()
+            setAgents(agentsData.results || [])
+            
+            console.log('Portal resolved with agents:', data, agentsData)
+          } else {
+            // Try alternative resolution methods
+            console.log('Direct portal resolution failed, trying alternative methods...')
+            
+            // Try to resolve by workspace name or ID directly
+            try {
+              // First try to get all workspaces and find by name
+              const workspacesResponse = await fetch(`${API_BASE_URL}/api/v1/core/test-portal/`)
+              const workspacesData = await workspacesResponse.json()
+              
+              if (workspacesData.workspaces) {
+                const matchingWorkspace = workspacesData.workspaces.find(
+                  (ws: any) => ws.name.toLowerCase() === slugPath.toLowerCase() || 
+                               ws.simple_slug === slugPath ||
+                               ws.id === slugPath
+                )
+                
+                if (matchingWorkspace) {
+                  const fallbackData = {
+                    workspace_id: matchingWorkspace.id,
+                    workspace_name: matchingWorkspace.name,
+                    assistant_name: 'AI Assistant',
+                    portal_slug: matchingWorkspace.simple_slug
+                  }
+                  
+                  setWorkspaceData(fallbackData)
+                  
+                  // Load agents for this workspace
+                  const agentsResponse = await fetch(`${API_BASE_URL}/api/v1/core/workspaces/${matchingWorkspace.id}/agents/`)
+                  const agentsData = await agentsResponse.json()
+                  setAgents(agentsData.results || [])
+                  
+                  console.log('Portal resolved via fallback with agents:', fallbackData, agentsData)
+                } else {
+                  setError('Portal not found. Please check the URL and try again.')
+                }
+              } else {
+                setError('Portal not found. Please check the URL and try again.')
+              }
+            } catch (fallbackError) {
+              console.error('Fallback resolution also failed:', fallbackError)
+              setError('Portal not found. Please check the URL and try again.')
+            }
+          }
         }
       } catch (error) {
         console.error('Failed to resolve portal slug:', error)
@@ -131,7 +264,9 @@ function CustomPortalContent() {
         contact_id: response.contact_id,
         contact_name: response.contact_name,
         workspace_name: response.workspace_name,
-        assistant_name: response.assistant_name
+        assistant_name: selectedAgent?.name || response.assistant_name,
+        agent_id: selectedAgent?.id,
+        agent_slug: selectedAgent?.slug
       })
       setStep('chat')
     } catch (error) {
@@ -195,7 +330,99 @@ function CustomPortalContent() {
   }
 
   if (step === 'chat' && sessionData) {
-    return <ChatInterface sessionData={sessionData} />
+    return <ChatInterface sessionData={sessionData} selectedAgent={selectedAgent || undefined} />
+  }
+
+  if (step === 'agents' && workspaceData) {
+    // If only one agent, auto-select it and go to phone input
+    if (agents.length === 1 && agents[0]) {
+      setSelectedAgent(agents[0])
+      setStep('phone')
+      return null
+    }
+    
+    // If no agents, show error
+    if (agents.length === 0) {
+      return (
+        <div className="min-h-screen bg-gradient-to-br from-red-50 to-pink-100 flex items-center justify-center">
+          <div className="bg-white rounded-lg shadow-lg p-8 max-w-md w-full mx-4">
+            <div className="text-center">
+              <div className="w-16 h-16 bg-red-100 rounded-full flex items-center justify-center mx-auto mb-4">
+                <svg className="w-8 h-8 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L3.732 16.5c-.77.833.192 2.5 1.732 2.5z" />
+                </svg>
+              </div>
+              <h2 className="text-xl font-semibold text-gray-900 mb-2">No AI Agents Available</h2>
+              <p className="text-gray-600 mb-4">This workspace doesn't have any active AI agents configured.</p>
+              <button 
+                onClick={() => window.location.href = '/'}
+                className="bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700 transition-colors"
+              >
+                Go to Homepage
+              </button>
+            </div>
+          </div>
+        </div>
+      )
+    }
+    
+        // Show agent directory
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 p-4">
+        <div className="max-w-4xl mx-auto">
+          {/* Header */}
+          <div className="text-center mb-8">
+            <div className="w-16 h-16 bg-gradient-to-br from-blue-500 to-indigo-600 rounded-full flex items-center justify-center mx-auto mb-4 shadow-lg">
+              <Bot className="w-8 h-8 text-white" />
+            </div>
+            <h1 className="text-3xl font-bold text-gray-900 mb-2">
+              {workspaceData.workspace_name}
+            </h1>
+            <p className="text-xl text-gray-600">
+              Choose your AI assistant
+            </p>
+          </div>
+
+          {/* Agent Directory */}
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+            {agents.map((agent) => (
+              <div
+                key={agent.id}
+                className="bg-white rounded-2xl shadow-xl p-6 cursor-pointer hover:shadow-2xl transition-all duration-200 border-2 border-transparent hover:border-blue-200"
+                onClick={() => {
+                  setSelectedAgent(agent)
+                  setStep('phone')
+                }}
+              >
+                <div className="text-center">
+                  <div className="w-16 h-16 bg-gradient-to-br from-blue-500 to-indigo-600 rounded-full flex items-center justify-center mx-auto mb-4">
+                    <Bot className="w-8 h-8 text-white" />
+                  </div>
+                  <h3 className="text-xl font-semibold text-gray-900 mb-2">{agent.name}</h3>
+                  <p className="text-gray-600 mb-4">{agent.description}</p>
+                  
+                  <div className="flex items-center justify-center space-x-2 text-sm text-gray-500">
+                    <span className="capitalize">{agent.channel_type}</span>
+                    {agent.is_default && (
+                      <span className="px-2 py-1 bg-yellow-100 text-yellow-800 text-xs rounded-full">
+                        Default
+                      </span>
+                    )}
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+
+          {/* Footer */}
+          <div className="text-center mt-8">
+            <p className="text-sm text-gray-500">
+              Powered by AI Personal Business Assistant
+            </p>
+          </div>
+        </div>
+      </div>
+    )
   }
 
   return (
@@ -209,13 +436,36 @@ function CustomPortalContent() {
           <h1 className="text-2xl font-bold text-gray-900 mb-2">
             {workspaceData.workspace_name}
           </h1>
-          <p className="text-gray-600">
-            Chat with {workspaceData.assistant_name}
-          </p>
+          {selectedAgent ? (
+            <div>
+              <p className="text-lg font-medium text-gray-800 mb-1">
+                {selectedAgent.name}
+              </p>
+              <p className="text-gray-600">
+                {selectedAgent.description}
+              </p>
+            </div>
+          ) : (
+            <p className="text-gray-600">
+              Chat with {workspaceData.assistant_name}
+            </p>
+          )}
         </div>
 
         {/* Phone Input Form */}
         <div className="bg-white rounded-2xl shadow-xl p-6">
+          {selectedAgent && agents.length > 1 && (
+            <div className="mb-4">
+              <button
+                type="button"
+                onClick={() => setStep('agents')}
+                className="text-blue-600 hover:text-blue-700 text-sm font-medium flex items-center"
+              >
+                ← Back to agent selection
+              </button>
+            </div>
+          )}
+          
           <form onSubmit={handlePhoneSubmit} className="space-y-6">
             {error && (
               <div className="bg-red-50 border border-red-200 rounded-lg p-4">

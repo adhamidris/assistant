@@ -99,13 +99,236 @@ class WorkspaceContextSchemaViewSet(viewsets.ModelViewSet):
             current_status = test_data.get('status', 'new')
             status_choices = schema.get_status_choices()
             
-            transition_results = {}
-            for status_choice in status_choices:
-                target_status = status_choice['id']
-                can_transition = schema.can_transition_status(current_status, target_status)
-                transition_results[target_status] = can_transition
+            # Test available transitions
+            available_transitions = []
+            for status in status_choices:
+                if schema.can_transition_status(current_status, status['id']):
+                    available_transitions.append(status['id'])
             
-            results['status_transitions'] = transition_results
+            results['status_transitions'] = {
+                'current_status': current_status,
+                'available_transitions': available_transitions,
+                'all_statuses': [s['id'] for s in status_choices]
+            }
+        
+        if serializer.validated_data.get('test_field_validation', True):
+            # Test field validation
+            field_errors = []
+            for field in schema.fields:
+                field_id = field.get('id')
+                field_value = test_data.get(field_id)
+                
+                # Check required fields
+                if field.get('required', False) and (field_value is None or field_value == ''):
+                    field_errors.append(f"Required field '{field['name']}' is missing")
+                
+                # Check field type validation
+                if field_value is not None:
+                    type_errors = schema._validate_field_value(field, field_value)
+                    field_errors.extend(type_errors)
+            
+            results['field_validation'] = {
+                'valid': len(field_errors) == 0,
+                'errors': field_errors
+            }
+        
+        return Response(results)
+    
+    @action(detail=True, methods=['post'])
+    def validate_schema(self, request, workspace_pk=None, pk=None):
+        """Validate schema structure and return any errors"""
+        schema = self.get_object()
+        validation_errors = schema.validate_schema()
+        
+        return Response({
+            'valid': len(validation_errors) == 0,
+            'errors': validation_errors,
+            'field_count': schema.field_count,
+            'required_field_count': schema.required_field_count
+        })
+    
+    @action(detail=True, methods=['post'])
+    def export_schema(self, request, workspace_pk=None, pk=None):
+        """Export schema as JSON template"""
+        schema = self.get_object()
+        
+        export_data = {
+            'name': schema.name,
+            'description': schema.description,
+            'fields': schema.fields,
+            'status_workflow': schema.status_workflow,
+            'priority_config': schema.priority_config,
+            'exported_at': timezone.now().isoformat(),
+            'version': '1.0'
+        }
+        
+        return Response(export_data)
+    
+    @action(detail=True, methods=['post'])
+    def import_schema(self, request, workspace_pk=None, pk=None):
+        """Import schema configuration from JSON"""
+        schema = self.get_object()
+        
+        import_data = request.data.get('schema_data', {})
+        if not import_data:
+            return Response(
+                {'error': 'No schema data provided'}, 
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        # Validate imported data
+        try:
+            # Update schema fields
+            if 'fields' in import_data:
+                schema.fields = import_data['fields']
+            
+            if 'status_workflow' in import_data:
+                schema.status_workflow = import_data['status_workflow']
+            
+            if 'priority_config' in import_data:
+                schema.priority_config = import_data['priority_config']
+            
+            # Validate the updated schema
+            validation_errors = schema.validate_schema()
+            if validation_errors:
+                return Response({
+                    'error': 'Invalid schema data',
+                    'validation_errors': validation_errors
+                }, status=status.HTTP_400_BAD_REQUEST)
+            
+            schema.save()
+            serializer = self.get_serializer(schema)
+            return Response(serializer.data)
+            
+        except Exception as e:
+            return Response({
+                'error': f'Import failed: {str(e)}'
+            }, status=status.HTTP_400_BAD_REQUEST)
+    
+    @action(detail=False, methods=['get'])
+    def schema_templates(self, request, workspace_pk=None):
+        """Get available schema templates for this workspace"""
+        workspace = get_object_or_404(Workspace, id=workspace_pk)
+        
+        templates = [
+            {
+                'id': 'customer_service',
+                'name': 'Customer Service',
+                'description': 'Track customer inquiries, complaints, and support requests',
+                'fields': [
+                    {'id': 'inquiry_type', 'name': 'Inquiry Type', 'type': 'choice', 'required': True, 'choices': ['General', 'Technical', 'Billing', 'Complaint']},
+                    {'id': 'urgency', 'name': 'Urgency Level', 'type': 'choice', 'required': True, 'choices': ['Low', 'Medium', 'High', 'Critical']},
+                    {'id': 'customer_tier', 'name': 'Customer Tier', 'type': 'choice', 'required': False, 'choices': ['Bronze', 'Silver', 'Gold', 'Platinum']},
+                    {'id': 'assigned_to', 'name': 'Assigned To', 'type': 'text', 'required': False},
+                    {'id': 'resolution_time', 'name': 'Expected Resolution Time', 'type': 'number', 'required': False},
+                ],
+                'status_workflow': {
+                    'statuses': [
+                        {'id': 'new', 'label': 'New', 'color': 'blue'},
+                        {'id': 'assigned', 'label': 'Assigned', 'color': 'yellow'},
+                        {'id': 'in_progress', 'label': 'In Progress', 'color': 'orange'},
+                        {'id': 'waiting', 'label': 'Waiting for Customer', 'color': 'purple'},
+                        {'id': 'resolved', 'label': 'Resolved', 'color': 'green'},
+                        {'id': 'closed', 'label': 'Closed', 'color': 'gray'}
+                    ],
+                    'transitions': {
+                        'new': ['assigned', 'in_progress'],
+                        'assigned': ['in_progress', 'waiting'],
+                        'in_progress': ['waiting', 'resolved'],
+                        'waiting': ['in_progress', 'resolved'],
+                        'resolved': ['closed'],
+                        'closed': []
+                    }
+                },
+                'priority_config': {
+                    'default_priority': 'medium',
+                    'rules': [
+                        {'type': 'equals', 'field_id': 'urgency', 'condition': 'equals', 'value': 'Critical', 'priority': 'high'},
+                        {'type': 'equals', 'field_id': 'urgency', 'condition': 'equals', 'value': 'High', 'priority': 'high'},
+                        {'type': 'equals', 'field_id': 'customer_tier', 'condition': 'equals', 'value': 'Platinum', 'priority': 'high'}
+                    ]
+                }
+            },
+            {
+                'id': 'appointment_booking',
+                'name': 'Appointment Booking',
+                'description': 'Manage appointment scheduling and confirmations',
+                'fields': [
+                    {'id': 'service_type', 'name': 'Service Type', 'type': 'choice', 'required': True, 'choices': ['Consultation', 'Treatment', 'Follow-up', 'Emergency']},
+                    {'id': 'preferred_date', 'name': 'Preferred Date', 'type': 'date', 'required': True},
+                    {'id': 'preferred_time', 'name': 'Preferred Time', 'type': 'choice', 'required': True, 'choices': ['Morning', 'Afternoon', 'Evening']},
+                    {'id': 'duration', 'name': 'Duration (minutes)', 'type': 'number', 'required': True},
+                    {'id': 'special_requirements', 'name': 'Special Requirements', 'type': 'textarea', 'required': False},
+                    {'id': 'payment_method', 'name': 'Payment Method', 'type': 'choice', 'required': False, 'choices': ['Cash', 'Card', 'Insurance', 'Other']}
+                ],
+                'status_workflow': {
+                    'statuses': [
+                        {'id': 'requested', 'label': 'Requested', 'color': 'blue'},
+                        {'id': 'confirmed', 'label': 'Confirmed', 'color': 'green'},
+                        {'id': 'rescheduled', 'label': 'Rescheduled', 'color': 'yellow'},
+                        {'id': 'cancelled', 'label': 'Cancelled', 'color': 'red'},
+                        {'id': 'completed', 'label': 'Completed', 'color': 'gray'}
+                    ],
+                    'transitions': {
+                        'requested': ['confirmed', 'rescheduled', 'cancelled'],
+                        'confirmed': ['rescheduled', 'cancelled', 'completed'],
+                        'rescheduled': ['confirmed', 'cancelled'],
+                        'cancelled': [],
+                        'completed': []
+                    }
+                },
+                'priority_config': {
+                    'default_priority': 'medium',
+                    'rules': [
+                        {'type': 'equals', 'field_id': 'service_type', 'condition': 'equals', 'value': 'Emergency', 'priority': 'high'},
+                        {'type': 'equals', 'field_id': 'duration', 'condition': 'greater_than', 'value': 60, 'priority': 'high'}
+                    ]
+                }
+            },
+            {
+                'id': 'sales_inquiry',
+                'name': 'Sales Inquiry',
+                'description': 'Track sales leads and customer inquiries',
+                'fields': [
+                    {'id': 'product_interest', 'name': 'Product Interest', 'type': 'choice', 'required': True, 'choices': ['Product A', 'Product B', 'Product C', 'Other']},
+                    {'id': 'budget_range', 'name': 'Budget Range', 'type': 'choice', 'required': True, 'choices': ['Under $100', '$100-$500', '$500-$1000', 'Over $1000']},
+                    {'id': 'timeline', 'name': 'Purchase Timeline', 'type': 'choice', 'required': True, 'choices': ['Immediate', '1-2 weeks', '1-2 months', '3+ months']},
+                    {'id': 'decision_maker', 'name': 'Decision Maker', 'type': 'choice', 'required': False, 'choices': ['Yes', 'No', 'Partially']},
+                    {'id': 'competitor_info', 'name': 'Competitor Information', 'type': 'textarea', 'required': False},
+                    {'id': 'follow_up_date', 'name': 'Follow-up Date', 'type': 'date', 'required': False}
+                ],
+                'status_workflow': {
+                    'statuses': [
+                        {'id': 'new_lead', 'label': 'New Lead', 'color': 'blue'},
+                        {'id': 'contacted', 'label': 'Contacted', 'color': 'yellow'},
+                        {'id': 'qualified', 'label': 'Qualified', 'color': 'orange'},
+                        {'id': 'proposal_sent', 'label': 'Proposal Sent', 'color': 'purple'},
+                        {'id': 'negotiating', 'label': 'Negotiating', 'color': 'red'},
+                        {'id': 'closed_won', 'label': 'Closed Won', 'color': 'green'},
+                        {'id': 'closed_lost', 'label': 'Closed Lost', 'color': 'gray'}
+                    ],
+                    'transitions': {
+                        'new_lead': ['contacted', 'qualified'],
+                        'contacted': ['qualified', 'closed_lost'],
+                        'qualified': ['proposal_sent', 'closed_lost'],
+                        'proposal_sent': ['negotiating', 'closed_lost'],
+                        'negotiating': ['closed_won', 'closed_lost'],
+                        'closed_won': [],
+                        'closed_lost': []
+                    }
+                },
+                'priority_config': {
+                    'default_priority': 'medium',
+                    'rules': [
+                        {'type': 'equals', 'field_id': 'budget_range', 'condition': 'equals', 'value': 'Over $1000', 'priority': 'high'},
+                        {'type': 'equals', 'field_id': 'timeline', 'condition': 'equals', 'value': 'Immediate', 'priority': 'high'},
+                        {'type': 'equals', 'field_id': 'decision_maker', 'condition': 'equals', 'value': 'Yes', 'priority': 'high'}
+                    ]
+                }
+            }
+        ]
+        
+        return Response(templates)
         
         return Response({
             'test_results': results,

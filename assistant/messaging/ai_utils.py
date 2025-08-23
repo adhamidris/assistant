@@ -11,7 +11,7 @@ from django.core.cache import cache
 from django.utils import timezone
 import hashlib
 import json
-from .deepseek_client import deepseek_client
+from .deepseek_client import deepseek_client, DeepSeekClient
 
 logger = logging.getLogger(__name__)
 
@@ -26,6 +26,12 @@ class OpenAIClient:
     def __init__(self):
         self.api_key = settings.OPENAI_API_KEY
         self.encoding = tiktoken.get_encoding("cl100k_base")
+        # Initialize the modern OpenAI client
+        if self.api_key and self.api_key.strip():
+            from openai import OpenAI
+            self.client = OpenAI(api_key=self.api_key)
+        else:
+            self.client = None
     
     def count_tokens(self, text: str) -> int:
         """Count tokens in text using tiktoken"""
@@ -63,7 +69,20 @@ class OpenAIClient:
                 if language:
                     params["language"] = language
                 
-                response = openai.Audio.transcribe(**params)
+                if not self.client:
+                    logger.warning("OpenAI client not available - audio transcription skipped")
+                    return {
+                        'text': '',
+                        'error': 'OpenAI client not configured',
+                        'success': False
+                    }
+                    
+                # Remove file from params for new API
+                audio_file = params.pop("file")
+                response = self.client.audio.transcriptions.create(
+                    **params,
+                    file=audio_file
+                )
                 
                 return {
                     'text': response.text,
@@ -114,7 +133,15 @@ class OpenAIClient:
                 else:
                     messages = recent_messages
             
-            response = openai.ChatCompletion.create(
+            if not self.client:
+                logger.warning("OpenAI client not available - chat response skipped")
+                return {
+                    'text': "I apologize, but OpenAI services are not configured. Please try again later.",
+                    'error': 'OpenAI client not configured',
+                    'success': False
+                }
+                
+            response = self.client.chat.completions.create(
                 model=model,
                 messages=messages,
                 max_tokens=max_tokens,
@@ -221,7 +248,7 @@ class ConversationAnalyzer:
     """Advanced conversation analysis and summarization"""
     
     def __init__(self):
-        self.openai_client = OpenAIClient()
+        self.deepseek_client = DeepSeekClient()
     
     def summarize_conversation(self, messages: List[Dict], max_length: int = 150) -> Dict:
         """
@@ -275,16 +302,18 @@ Format your response as JSON with these fields:
                 {"role": "user", "content": f"Conversation to summarize:\n\n{conversation_text}"}
             ]
             
-            response = self.openai_client.generate_chat_response(
+            response = self.deepseek_client.chat_completion(
                 messages=messages_for_api,
                 temperature=0.3,
                 max_tokens=400
             )
             
-            if response['success']:
+            # Parse DeepSeek response format
+            if "choices" in response and response["choices"]:
                 try:
                     import json
-                    summary_data = json.loads(response['text'])
+                    response_text = response["choices"][0]["message"]["content"].strip()
+                    summary_data = json.loads(response_text)
                     summary_data['success'] = True
                     summary_data['word_count'] = len(summary_data['summary'].split())
                     return summary_data
@@ -343,16 +372,18 @@ Only include entities that are clearly mentioned. Use empty arrays for categorie
                 {"role": "user", "content": f"Text to analyze:\n\n{text}"}
             ]
             
-            response = self.openai_client.generate_chat_response(
+            response = self.deepseek_client.chat_completion(
                 messages=messages,
                 temperature=0.1,
                 max_tokens=300
             )
             
-            if response['success']:
+            # Parse DeepSeek response format
+            if "choices" in response and response["choices"]:
                 try:
                     import json
-                    entities = json.loads(response['text'])
+                    response_text = response["choices"][0]["message"]["content"].strip()
+                    entities = json.loads(response_text)
                     entities['success'] = True
                     return entities
                 except json.JSONDecodeError:
@@ -401,16 +432,18 @@ Be objective and consider context of customer service interactions."""
                 {"role": "user", "content": f"Text to analyze:\n\n{text}"}
             ]
             
-            response = self.openai_client.generate_chat_response(
+            response = self.deepseek_client.chat_completion(
                 messages=messages,
                 temperature=0.2,
                 max_tokens=250
             )
             
-            if response['success']:
+            # Parse DeepSeek response format
+            if "choices" in response and response["choices"]:
                 try:
                     import json
-                    sentiment_data = json.loads(response['text'])
+                    response_text = response["choices"][0]["message"]["content"].strip()
+                    sentiment_data = json.loads(response_text)
                     sentiment_data['success'] = True
                     return sentiment_data
                 except json.JSONDecodeError:
@@ -534,7 +567,8 @@ class ResponseGenerator:
     """Generate contextual responses using AI"""
     
     def __init__(self):
-        self.openai_client = OpenAIClient()
+        from .deepseek_client import DeepSeekClient
+        self.deepseek_client = DeepSeekClient()
     
     def build_system_prompt(self, workspace, kb_context: str = "") -> str:
         """Build personalized system prompt based on workspace profile"""
@@ -661,7 +695,7 @@ Remember: You represent {workspace_name} and should provide accurate, helpful in
             
             # Generate response using DeepSeek
             context_text = "\n".join([f"{msg['role']}: {msg['content']}" for msg in conversation_context])
-            response = deepseek_client.generate_response(
+            response = self.deepseek_client.generate_response(
                 prompt=user_message,
                 context=context_text,
                 system_prompt=system_prompt
@@ -683,6 +717,5 @@ Remember: You represent {workspace_name} and should provide accurate, helpful in
 
 
 # Global instances
-openai_client = OpenAIClient()
 response_generator = ResponseGenerator()
 conversation_analyzer = ConversationAnalyzer()

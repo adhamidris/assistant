@@ -10,11 +10,19 @@ import {
   BarChart3,
   Bot,
   Clock,
-  CheckCircle,
-  AlertCircle,
-  TrendingUp,
   Calendar,
-  Share2
+  Share2,
+  LayoutDashboard,
+  Database,
+  Workflow,
+  Lightbulb,
+  Shield,
+  Zap,
+  TrendingUp,
+  Building2,
+  Sparkles,
+  Activity,
+  CheckCircle
 } from 'lucide-react'
 import { getConversations, getContacts, getDrafts } from '@/lib/api'
 import ConversationList from '@/components/ConversationList'
@@ -24,14 +32,37 @@ import AppointmentsList from '@/components/AppointmentsList'
 import KnowledgeBaseManager from '@/components/KnowledgeBaseManager'
 import PortalLinkGenerator from '@/components/PortalLinkGenerator'
 import NotificationBell from '@/components/NotificationBell'
+import ContextSchemasManager from '@/components/ContextSchemasManager'
+import BusinessRulesManager from '@/components/BusinessRulesManager'
+import AgentManager from '@/components/AgentManager'
+import BusinessTypeSetup from '@/components/BusinessTypeSetup'
+import FieldSuggestionsManager from '@/components/FieldSuggestionsManager'
+import TestingDashboard from '@/components/TestingDashboard'
+import DashboardCard from '@/components/ui/dashboard-card'
+import Sidebar from '@/components/ui/sidebar'
+import NavItem from '@/components/ui/nav-item'
+import StatsCard from '@/components/ui/stats-card'
 
 // API Configuration
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE || 'http://localhost:8000'
 
-type TabType = 'conversations' | 'contacts' | 'drafts' | 'appointments' | 'knowledge' | 'analytics' | 'portal'
+type TabType = 'overview' | 'conversations' | 'contacts' | 'drafts' | 'appointments' | 'knowledge' | 'context-schemas' | 'business-rules' | 'ai-agents' | 'business-setup' | 'field-suggestions' | 'testing' | 'analytics' | 'portal'
+
+interface NavigationItem {
+  id: TabType
+  label: string
+  icon: any
+  badge: number | undefined
+}
+
+interface NavigationSection {
+  title: string
+  items: NavigationItem[]
+}
 
 export default function Dashboard() {
-  const [activeTab, setActiveTab] = useState<TabType>('conversations')
+  const [activeTab, setActiveTab] = useState<TabType>('overview')
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
   const [stats, setStats] = useState({
     totalConversations: 0,
     activeConversations: 0,
@@ -96,174 +127,133 @@ export default function Dashboard() {
         // Don't redirect immediately, let the API calls handle it
       }
     }
-    
-    // Check immediately
-    checkAuth()
-    
-    // Also check after a short delay to ensure localStorage is ready
-    const timeoutId = setTimeout(checkAuth, 100)
-    
-    return () => clearTimeout(timeoutId)
+
+    // Wait for browser to be ready
+    if (typeof window !== 'undefined') {
+      checkAuth()
+    }
   }, [router])
 
-  // Separate useEffect to handle profile check after workspaceId is set
   useEffect(() => {
-    if (workspaceId) {
-      checkProfileSetup()
-    }
-  }, [workspaceId])
+    if (!workspaceId) return
 
-  // Add timeout fallback to prevent infinite loading
-  useEffect(() => {
-    const timeout = setTimeout(() => {
-      if (isLoading) {
-        console.log('Dashboard loading timeout - forcing load completion')
+    const loadDashboardData = async () => {
+      try {
+        console.log('Loading dashboard data for workspace:', workspaceId)
+        
+        // Load all data in parallel
+        const [conversations, contacts, drafts, appointmentResponse] = await Promise.all([
+          getConversations(workspaceId).catch(error => {
+            console.error('Failed to load conversations:', error)
+            return []
+          }),
+          getContacts(workspaceId).catch(error => {
+            console.error('Failed to load contacts:', error)
+            return []
+          }),
+          getDrafts().catch(error => {
+            console.error('Failed to load drafts:', error)
+            return []
+          }),
+          fetch(`${API_BASE_URL}/api/v1/calendar/appointments/?workspace=${workspaceId}`).catch(() => ({ ok: false }))
+        ])
+        
+        console.log('Loaded data:', { conversations, contacts, drafts })
+        
+        // Load appointments if API is available
+        let appointmentData = []
+        if (appointmentResponse.ok && 'json' in appointmentResponse) {
+          try {
+            const appointmentResult = await appointmentResponse.json()
+            appointmentData = appointmentResult.results || appointmentResult || []
+          } catch (error) {
+            console.error('Failed to parse appointment data:', error)
+          }
+        }
+
+        // Ensure we have arrays for the data
+        const conversationsArray = Array.isArray(conversations) ? conversations : (conversations?.results || [])
+        const contactsArray = Array.isArray(contacts) ? contacts : (contacts?.results || [])
+        const draftsArray = Array.isArray(drafts) ? drafts : (drafts?.results || [])
+
+        setAppointments(appointmentData)
+        setStats({
+          totalConversations: conversationsArray.length || 0,
+          activeConversations: conversationsArray.filter((c: any) => c.status === 'active').length || 0,
+          totalContacts: contactsArray.length || 0,
+          pendingDrafts: draftsArray.length || 0,
+          responseTime: '2.3s',
+          satisfactionRate: '94%'
+        })
+        
+        console.log('Dashboard data loaded successfully')
+      } catch (error) {
+        console.error('Failed to load dashboard data:', error)
+        // Set default stats even if loading fails
+        setStats({
+          totalConversations: 0,
+          activeConversations: 0,
+          totalContacts: 0,
+          pendingDrafts: 0,
+          responseTime: '2.3s',
+          satisfactionRate: '94%'
+        })
+        setAppointments([])
+      } finally {
         setIsLoading(false)
       }
-    }, 10000) // 10 second timeout
-
-    return () => clearTimeout(timeout)
-  }, [isLoading])
-  
-  const checkProfileSetup = async () => {
-    if (!workspaceId) return
-    
-    try {
-      console.log('Checking profile setup for workspace:', workspaceId)
-      const token = localStorage.getItem('authToken')
-      
-      // Check if we have a token before making the API call
-      if (!token) {
-        console.log('No token available for profile check, skipping...')
-        loadDashboardData()
-        return
-      }
-      
-      const response = await fetch(`${API_BASE_URL}/api/v1/core/workspaces/${workspaceId}/profile-status/`, {
-        headers: {
-          'Authorization': `Token ${token}`,
-          'Content-Type': 'application/json',
-        }
-      })
-      
-      if (!response.ok) {
-        console.log('Profile status check failed, continuing to dashboard anyway...')
-        loadDashboardData()
-        return
-      }
-      
-      const data = await response.json()
-      console.log('Profile status response:', data)
-      
-      if (!data.profile_completed) {
-        // Redirect to profile setup using router
-        console.log('Profile not completed, redirecting to profile setup...')
-        try {
-          router.push(`/profile-setup?workspace=${workspaceId}`)
-        } catch (error) {
-          console.error('Router redirect failed, using window.location:', error)
-          window.location.href = `/profile-setup?workspace=${workspaceId}`
-        }
-        return
-      }
-      
-      // Profile is complete, load dashboard
-      loadDashboardData()
-    } catch (error) {
-      console.error('Error checking profile:', error)
-      // Continue to dashboard even if profile check fails
-      console.log('Profile check failed, loading dashboard anyway...')
-      loadDashboardData()
     }
-  }
 
-  const loadDashboardData = async () => {
-    if (!workspaceId) return
-    
-    try {
-      setIsLoading(true)
-      console.log('Loading dashboard data for workspace:', workspaceId)
-      
-      // Check if user is still authenticated before making API calls
-      const currentToken = localStorage.getItem('authToken')
-      if (!currentToken) {
-        console.log('Token missing during data load, redirecting to login')
-        router.push('/login')
-        return
-      }
-      
-      // Load dashboard statistics and appointments
-      const [conversations, contacts, drafts, appointmentResponse] = await Promise.all([
-        getConversations(workspaceId).catch(error => {
-          console.error('Failed to load conversations:', error)
-          return []
-        }),
-        getContacts(workspaceId).catch(error => {
-          console.error('Failed to load contacts:', error)
-          return []
-        }),
-        getDrafts().catch(error => {
-          console.error('Failed to load drafts:', error)
-          return []
-        }),
-        fetch(`${API_BASE_URL}/api/v1/calendar/appointments/?workspace=${workspaceId}`).catch(() => ({ ok: false }))
-      ])
-      
-      console.log('Loaded data:', { conversations, contacts, drafts })
-      
-      // Load appointments if API is available
-      let appointmentData = []
-      if (appointmentResponse.ok && 'json' in appointmentResponse) {
-        try {
-          const appointmentResult = await appointmentResponse.json()
-          appointmentData = appointmentResult.results || appointmentResult || []
-        } catch (error) {
-          console.error('Failed to parse appointment data:', error)
-        }
-      }
+    loadDashboardData()
+  }, [workspaceId])
 
-      // Ensure we have arrays for the data
-      const conversationsArray = Array.isArray(conversations) ? conversations : (conversations?.results || [])
-      const contactsArray = Array.isArray(contacts) ? contacts : (contacts?.results || [])
-      const draftsArray = Array.isArray(drafts) ? drafts : (drafts?.results || [])
-
-      setAppointments(appointmentData)
-      setStats({
-        totalConversations: conversationsArray.length || 0,
-        activeConversations: conversationsArray.filter((c: any) => c.status === 'active').length || 0,
-        totalContacts: contactsArray.length || 0,
-        pendingDrafts: draftsArray.length || 0,
-        responseTime: '2.3s',
-        satisfactionRate: '94%'
-      })
-      
-      console.log('Dashboard data loaded successfully')
-    } catch (error) {
-      console.error('Failed to load dashboard data:', error)
-      // Set default stats even if loading fails
-      setStats({
-        totalConversations: 0,
-        activeConversations: 0,
-        totalContacts: 0,
-        pendingDrafts: 0,
-        responseTime: '2.3s',
-        satisfactionRate: '94%'
-      })
-      setAppointments([])
-    } finally {
-      setIsLoading(false)
+  // Navigation structure with organized sections
+  const navigationSections: NavigationSection[] = [
+    {
+      title: 'Overview',
+      items: [
+        { id: 'overview', label: 'Dashboard', icon: LayoutDashboard, badge: undefined }
+      ]
+    },
+    {
+      title: 'Communication',
+      items: [
+        { id: 'conversations', label: 'Conversations', icon: MessageSquare, badge: stats.activeConversations },
+        { id: 'contacts', label: 'Contacts', icon: Users, badge: stats.totalContacts },
+        { id: 'drafts', label: 'Drafts', icon: Clock, badge: stats.pendingDrafts },
+        { id: 'appointments', label: 'Appointments', icon: Calendar, badge: appointments.length }
+      ]
+    },
+    {
+      title: 'AI & Intelligence',
+      items: [
+        { id: 'ai-agents', label: 'AI Agents', icon: Bot, badge: undefined },
+        { id: 'knowledge', label: 'Knowledge Base', icon: FileText, badge: undefined },
+        { id: 'field-suggestions', label: 'Field Suggestions', icon: Lightbulb, badge: undefined }
+      ]
+    },
+    {
+      title: 'Business Logic',
+      items: [
+        { id: 'context-schemas', label: 'Context Schemas', icon: Database, badge: undefined },
+        { id: 'business-rules', label: 'Business Rules', icon: Workflow, badge: undefined },
+        { id: 'business-setup', label: 'Business Setup', icon: Building2, badge: undefined }
+      ]
+    },
+    {
+      title: 'Testing & Analytics',
+      items: [
+        { id: 'testing', label: 'Testing Dashboard', icon: Shield, badge: undefined },
+        { id: 'analytics', label: 'Analytics', icon: TrendingUp, badge: undefined }
+      ]
+    },
+    {
+      title: 'System',
+      items: [
+        { id: 'portal', label: 'Portal Link', icon: Share2, badge: undefined }
+      ]
     }
-  }
-
-  const tabs = [
-    { id: 'conversations', label: 'Conversations', icon: MessageSquare, badge: undefined },
-    { id: 'contacts', label: 'Contacts', icon: Users, badge: undefined },
-    { id: 'drafts', label: 'Drafts', icon: Clock, badge: stats.pendingDrafts },
-    { id: 'appointments', label: 'Appointments', icon: Calendar, badge: appointments.length },
-    { id: 'knowledge', label: 'Knowledge Base', icon: FileText, badge: undefined },
-    { id: 'analytics', label: 'Analytics', icon: BarChart3, badge: undefined },
-    { id: 'portal', label: 'Portal Link', icon: Share2, badge: undefined }
-  ] as const
+  ]
 
   if (isLoading) {
     return (
@@ -277,197 +267,310 @@ export default function Dashboard() {
   }
 
   return (
-    <div className="min-h-screen bg-gray-50">
-      {/* Header */}
-      <header className="bg-white shadow-sm border-b border-gray-200">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex justify-between items-center py-4">
-            <div className="flex items-center space-x-3">
-              <Bot className="h-8 w-8 text-blue-600" />
+    <div className="min-h-screen bg-gray-50 flex">
+      {/* Left Sidebar */}
+      <Sidebar
+        collapsed={sidebarCollapsed}
+        onToggle={() => setSidebarCollapsed(!sidebarCollapsed)}
+      >
+        {/* Sidebar Header */}
+        <div className="p-4 border-b border-gray-200">
+          <div className="flex items-center space-x-3">
+            <div className="w-8 h-8 bg-gradient-to-br from-blue-500 to-purple-600 rounded-lg flex items-center justify-center">
+              <Bot className="w-5 h-5 text-white" />
+            </div>
+            {!sidebarCollapsed && (
               <div>
-                <h1 className="text-2xl font-bold text-gray-900">Business Dashboard</h1>
-                <p className="text-sm text-gray-500">AI Personal Business Assistant</p>
+                <h1 className="text-lg font-bold text-gray-900">AI Assistant</h1>
+                <p className="text-xs text-gray-500">Business Dashboard</p>
               </div>
+            )}
+          </div>
+        </div>
+
+        {/* Navigation Sections */}
+        <nav className="p-4 space-y-6">
+          {navigationSections.map((section, sectionIndex) => (
+            <div key={sectionIndex}>
+              {!sidebarCollapsed && (
+                <h3 className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-3 px-2">
+                  {section.title}
+                </h3>
+              )}
+              <div className="space-y-1">
+                {section.items.map((item) => {
+                  const Icon = item.icon
+                  const isActive = activeTab === item.id
+                  return (
+                    <NavItem
+                      key={item.id}
+                      icon={Icon}
+                      label={item.label}
+                      badge={item.badge}
+                      active={isActive}
+                      collapsed={sidebarCollapsed}
+                      onClick={() => setActiveTab(item.id as TabType)}
+                    />
+                  )
+                })}
+              </div>
+            </div>
+          ))}
+        </nav>
+
+        {/* User Profile Section */}
+        {!sidebarCollapsed && (
+          <div className="absolute bottom-0 left-0 right-0 p-4 border-t border-gray-200 bg-white">
+            <div className="flex items-center space-x-3">
+              <div className="w-8 h-8 bg-gradient-to-br from-green-400 to-blue-500 rounded-full flex items-center justify-center">
+                <span className="text-sm font-semibold text-white">
+                  {userData?.first_name?.[0] || userData?.username?.[0] || 'U'}
+                </span>
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-medium text-gray-900 truncate">
+                  {userData?.first_name && userData?.last_name
+                    ? `${userData.first_name} ${userData.last_name}`
+                    : userData?.username || 'User'
+                  }
+                </p>
+                <p className="text-xs text-gray-500 truncate">
+                  {userData?.email || 'user@example.com'}
+                </p>
+              </div>
+            </div>
+          </div>
+        )}
+      </Sidebar>
+
+      {/* Main Content Area */}
+      <div className="flex-1 flex flex-col">
+        {/* Top Header */}
+        <header className="bg-white shadow-sm border-b border-gray-200 px-6 py-4">
+          <div className="flex items-center justify-between">
+            <div>
+              <h2 className="text-2xl font-bold text-gray-900">
+                {navigationSections
+                  .flatMap(section => section.items)
+                  .find(item => item.id === activeTab)?.label || 'Dashboard'
+                }
+              </h2>
+              <p className="text-sm text-gray-600 mt-1">
+                {activeTab === 'overview' 
+                  ? 'Welcome to your AI-powered business dashboard'
+                  : `Manage your ${navigationSections
+                      .flatMap(section => section.items)
+                      .find(item => item.id === activeTab)?.label.toLowerCase() || 'dashboard'
+                    }`
+                }
+              </p>
             </div>
             <div className="flex items-center space-x-4">
               <NotificationBell />
-              <button className="p-2 text-gray-400 hover:text-gray-600">
-                <Settings className="w-5 h-5" />
-              </button>
+              <div className="w-px h-6 bg-gray-300"></div>
+              <div className="text-right">
+                <p className="text-sm font-medium text-gray-900">
+                  {userData?.workspace?.name || 'Business'}
+                </p>
+                <p className="text-xs text-gray-500">Active Workspace</p>
+              </div>
             </div>
           </div>
-        </div>
-      </header>
+        </header>
 
-      {/* Stats Cards */}
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
-          <StatsCard
-            title="Total Conversations"
-            value={stats.totalConversations}
-            icon={MessageSquare}
-            color="blue"
-            change="+12%"
-          />
-          <StatsCard
-            title="Active Contacts"
-            value={stats.totalContacts}
-            icon={Users}
-            color="green"
-            change="+5%"
-          />
-          <StatsCard
-            title="Pending Drafts"
-            value={stats.pendingDrafts}
-            icon={Clock}
-            color="yellow"
-            change={stats.pendingDrafts > 0 ? 'Action needed' : 'All clear'}
-          />
-          <StatsCard
-            title="Avg Response Time"
-            value={stats.responseTime}
-            icon={TrendingUp}
-            color="purple"
-            change="-0.5s"
-          />
-        </div>
+        {/* Main Content */}
+        <main className="flex-1 p-6 overflow-auto">
+          {activeTab === 'overview' && (
+            <div className="space-y-6">
+              {/* Welcome Section */}
+              <div className="bg-gradient-to-r from-blue-600 to-purple-600 rounded-xl p-6 text-white">
+                <div className="flex items-center space-x-4">
+                  <div className="w-12 h-12 bg-white/20 rounded-lg flex items-center justify-center">
+                    <Sparkles className="w-6 h-6" />
+                  </div>
+                  <div>
+                    <h3 className="text-xl font-bold">Welcome back!</h3>
+                    <p className="text-blue-100">
+                      Your AI-powered business assistant is ready to help you grow.
+                    </p>
+                  </div>
+                </div>
+              </div>
 
-        {/* Navigation Tabs */}
-        <div className="bg-white rounded-lg shadow-sm mb-6">
-          <div className="border-b border-gray-200">
-            <nav className="-mb-px flex space-x-8 px-6">
-              {tabs.map((tab) => {
-                const Icon = tab.icon
-                return (
-                  <button
-                    key={tab.id}
-                    onClick={() => setActiveTab(tab.id)}
-                    className={`py-4 px-1 border-b-2 font-medium text-sm flex items-center space-x-2 ${
-                      activeTab === tab.id
-                        ? 'border-blue-500 text-blue-600'
-                        : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
-                    }`}
-                  >
-                    <Icon className="w-4 h-4" />
-                    <span>{tab.label}</span>
-                    {tab.badge && tab.badge > 0 && (
-                      <span className="bg-red-100 text-red-800 text-xs font-medium px-2 py-1 rounded-full">
-                        {tab.badge}
+              {/* Stats Grid */}
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+                <StatsCard
+                  title="Active Conversations"
+                  value={stats.activeConversations}
+                  icon={MessageSquare}
+                  color="blue"
+                  change={`${stats.totalConversations} total`}
+                  trend="up"
+                />
+                <StatsCard
+                  title="Total Contacts"
+                  value={stats.totalContacts}
+                  icon={Users}
+                  color="green"
+                  change="Growing network"
+                  trend="up"
+                />
+                <StatsCard
+                  title="Pending Drafts"
+                  value={stats.pendingDrafts}
+                  icon={Clock}
+                  color="yellow"
+                  change="Needs attention"
+                  trend={stats.pendingDrafts > 0 ? "down" : "neutral"}
+                />
+                <StatsCard
+                  title="Response Time"
+                  value={stats.responseTime}
+                  icon={Zap}
+                  color="purple"
+                  change="Fast & efficient"
+                  trend="up"
+                />
+              </div>
+
+              {/* Quick Actions */}
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                <DashboardCard>
+                  <h3 className="text-lg font-semibold text-gray-900 mb-4 flex items-center">
+                    <Zap className="w-5 h-5 text-blue-600 mr-2" />
+                    Quick Actions
+                  </h3>
+                  <div className="space-y-3">
+                    <button
+                      onClick={() => setActiveTab('conversations')}
+                      className="w-full flex items-center space-x-3 p-3 rounded-lg border border-gray-200 hover:border-blue-300 hover:bg-blue-50 transition-colors"
+                    >
+                      <MessageSquare className="w-5 h-5 text-blue-600" />
+                      <span className="text-sm font-medium text-gray-700">Start New Conversation</span>
+                    </button>
+                    <button
+                      onClick={() => setActiveTab('ai-agents')}
+                      className="w-full flex items-center space-x-3 p-3 rounded-lg border border-gray-200 hover:border-green-300 hover:bg-green-50 transition-colors"
+                    >
+                      <Bot className="w-5 h-5 text-green-600" />
+                      <span className="text-sm font-medium text-gray-700">Configure AI Agents</span>
+                    </button>
+                    <button
+                      onClick={() => setActiveTab('business-rules')}
+                      className="w-full flex items-center space-x-3 p-3 rounded-lg border border-gray-200 hover:border-purple-300 hover:bg-purple-50 transition-colors"
+                    >
+                      <Workflow className="w-5 h-5 text-purple-600" />
+                      <span className="text-sm font-medium text-gray-700">Set Business Rules</span>
+                    </button>
+                  </div>
+                </DashboardCard>
+
+                <DashboardCard>
+                  <h3 className="text-lg font-semibold text-gray-900 mb-4 flex items-center">
+                    <Activity className="w-5 h-5 text-green-600 mr-2" />
+                    System Status
+                  </h3>
+                  <div className="space-y-3">
+                    <div className="flex items-center justify-between">
+                      <span className="text-sm text-gray-600">AI Services</span>
+                      <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">
+                        <CheckCircle className="w-3 h-3 mr-1" />
+                        Operational
                       </span>
-                    )}
-                  </button>
-                )
-              })}
-            </nav>
-          </div>
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <span className="text-sm text-gray-600">Database</span>
+                      <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">
+                        <CheckCircle className="w-3 h-3 mr-1" />
+                        Healthy
+                      </span>
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <span className="text-sm text-gray-600">Background Tasks</span>
+                      <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">
+                        <CheckCircle className="w-3 h-3 mr-1" />
+                        Active
+                      </span>
+                    </div>
+                  </div>
+                </DashboardCard>
+              </div>
+            </div>
+          )}
 
-          {/* Tab Content */}
-          <div className="p-6">
-            {activeTab === 'conversations' && workspaceId && <ConversationList workspaceId={workspaceId} />}
-            {activeTab === 'contacts' && workspaceId && <ContactList workspaceId={workspaceId} />}
-            {activeTab === 'drafts' && <DraftManagement />}
-            {activeTab === 'appointments' && <AppointmentsList appointments={appointments} />}
-            {activeTab === 'knowledge' && workspaceId && <KnowledgeBaseManager workspaceId={workspaceId} />}
-            {activeTab === 'analytics' && <AnalyticsDashboard />}
-            {activeTab === 'portal' && workspaceId && <PortalLinkGenerator workspaceId={workspaceId} />}
-          </div>
-        </div>
+          {activeTab === 'conversations' && workspaceId && <ConversationList workspaceId={workspaceId} />}
+          {activeTab === 'contacts' && workspaceId && <ContactList workspaceId={workspaceId} />}
+          {activeTab === 'drafts' && <DraftManagement />}
+          {activeTab === 'appointments' && <AppointmentsList appointments={appointments} />}
+          {activeTab === 'knowledge' && workspaceId && <KnowledgeBaseManager workspaceId={workspaceId} />}
+          {activeTab === 'context-schemas' && workspaceId && <ContextSchemasManager workspaceId={workspaceId} />}
+          {activeTab === 'business-rules' && workspaceId && <BusinessRulesManager workspaceId={workspaceId} />}
+          {activeTab === 'ai-agents' && workspaceId && <AgentManager workspaceId={workspaceId} />}
+          {activeTab === 'business-setup' && workspaceId && <BusinessTypeSetup workspaceId={workspaceId} />}
+          {activeTab === 'field-suggestions' && workspaceId && <FieldSuggestionsManager workspaceId={workspaceId} />}
+          {activeTab === 'testing' && <TestingDashboard />}
+          {activeTab === 'analytics' && <AnalyticsDashboard />}
+          {activeTab === 'portal' && workspaceId && <PortalLinkGenerator workspaceId={workspaceId} />}
+        </main>
       </div>
     </div>
   )
 }
 
-function StatsCard({ 
-  title, 
-  value, 
-  icon: Icon, 
-  color, 
-  change 
-}: { 
-  title: string
-  value: string | number
-  icon: any
-  color: string
-  change: string 
-}) {
-  const colorClasses = {
-    blue: 'bg-blue-100 text-blue-600',
-    green: 'bg-green-100 text-green-600',
-    yellow: 'bg-yellow-100 text-yellow-600',
-    purple: 'bg-purple-100 text-purple-600'
-  }
 
-  return (
-    <div className="bg-white rounded-lg shadow-sm p-6">
-      <div className="flex items-center justify-between">
-        <div>
-          <p className="text-sm font-medium text-gray-600">{title}</p>
-          <p className="text-2xl font-bold text-gray-900">{value}</p>
-        </div>
-        <div className={`w-12 h-12 rounded-lg flex items-center justify-center ${colorClasses[color as keyof typeof colorClasses]}`}>
-          <Icon className="w-6 h-6" />
-        </div>
-      </div>
-      <div className="mt-4">
-        <span className={`text-sm ${
-          change.includes('+') || change.includes('-') 
-            ? change.includes('+') ? 'text-green-600' : 'text-red-600'
-            : 'text-gray-600'
-        }`}>
-          {change}
-        </span>
-      </div>
-    </div>
-  )
-}
 
 function AnalyticsDashboard() {
   return (
     <div className="space-y-6">
-      <h3 className="text-lg font-semibold text-gray-900">Analytics & Insights</h3>
-      
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <div className="bg-gray-50 rounded-lg p-6">
-          <h4 className="text-md font-medium text-gray-900 mb-4">Response Performance</h4>
-          <div className="space-y-3">
-            <div className="flex justify-between">
-              <span className="text-sm text-gray-600">Average Response Time</span>
-              <span className="text-sm font-medium">2.3s</span>
+      <DashboardCard>
+        <h3 className="text-lg font-semibold text-gray-900 mb-4 flex items-center">
+          <BarChart3 className="w-5 h-5 text-blue-600 mr-2" />
+          Analytics & Insights
+        </h3>
+        
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          <div className="bg-gray-50 rounded-lg p-6">
+            <h4 className="text-md font-medium text-gray-900 mb-4">Response Performance</h4>
+            <div className="space-y-3">
+              <div className="flex justify-between">
+                <span className="text-sm text-gray-600">Average Response Time</span>
+                <span className="text-sm font-medium">2.3s</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-sm text-gray-600">AI Success Rate</span>
+                <span className="text-sm font-medium">87%</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-sm text-gray-600">Customer Satisfaction</span>
+                <span className="text-sm font-medium">94%</span>
+              </div>
             </div>
-            <div className="flex justify-between">
-              <span className="text-sm text-gray-600">AI Success Rate</span>
-              <span className="text-sm font-medium">87%</span>
-            </div>
-            <div className="flex justify-between">
-              <span className="text-sm text-gray-600">Customer Satisfaction</span>
-              <span className="text-sm font-medium">94%</span>
+          </div>
+
+          <div className="bg-gray-50 rounded-lg p-6">
+            <h4 className="text-md font-medium text-gray-900 mb-4">Message Types</h4>
+            <div className="space-y-3">
+              <div className="flex justify-between">
+                <span className="text-sm text-gray-600">Text Messages</span>
+                <span className="text-sm font-medium">76%</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-sm text-gray-600">Audio Messages</span>
+                <span className="text-sm font-medium">18%</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-sm text-gray-600">File Uploads</span>
+                <span className="text-sm font-medium">6%</span>
+              </div>
             </div>
           </div>
         </div>
 
-        <div className="bg-gray-50 rounded-lg p-6">
-          <h4 className="text-md font-medium text-gray-900 mb-4">Message Types</h4>
-          <div className="space-y-3">
-            <div className="flex justify-between">
-              <span className="text-sm text-gray-600">Text Messages</span>
-              <span className="text-sm font-medium">76%</span>
-            </div>
-            <div className="flex justify-between">
-              <span className="text-sm text-gray-600">Audio Messages</span>
-              <span className="text-sm font-medium">18%</span>
-            </div>
-            <div className="flex justify-between">
-              <span className="text-sm text-gray-600">File Uploads</span>
-              <span className="text-sm font-medium">6%</span>
-            </div>
-          </div>
+        <div className="text-center py-12">
+          <BarChart3 className="w-12 h-12 text-gray-400 mx-auto mb-4" />
+          <p className="text-gray-500">Detailed analytics coming soon...</p>
         </div>
-      </div>
-
-      <div className="text-center py-12">
-        <BarChart3 className="w-12 h-12 text-gray-400 mx-auto mb-4" />
-        <p className="text-gray-500">Detailed analytics coming soon...</p>
-      </div>
+      </DashboardCard>
     </div>
   )
 }

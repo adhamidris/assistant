@@ -11,10 +11,22 @@ interface ChatInterfaceProps {
     contact_name: string
     workspace_name: string
     assistant_name: string
+    agent_id?: string
+    agent_slug?: string
+  }
+  selectedAgent?: {
+    id: string
+    name: string
+    slug: string
+    description: string
+    channel_type: string
+    generated_prompt: string
+    business_context: any
+    personality_config: any
   }
 }
 
-export default function ChatInterface({ sessionData }: ChatInterfaceProps) {
+export default function ChatInterface({ sessionData, selectedAgent }: ChatInterfaceProps) {
   const [messages, setMessages] = useState<Message[]>([])
   const [newMessage, setNewMessage] = useState('')
   const [isLoading, setIsLoading] = useState(false)
@@ -107,7 +119,20 @@ export default function ChatInterface({ sessionData }: ChatInterfaceProps) {
         if (!sessionToken) {
           throw new Error('No session token available. Please refresh the page and try again.')
         }
-        await sendSessionMessage({ text: messageText })
+        // Include agent context if available
+        const messageData: any = { text: messageText }
+        if (selectedAgent?.id) {
+          messageData.agent_id = selectedAgent.id
+          messageData.agent_context = {
+            name: selectedAgent.name,
+            slug: selectedAgent.slug,
+            channel_type: selectedAgent.channel_type,
+            generated_prompt: selectedAgent.generated_prompt,
+            business_context: selectedAgent.business_context,
+            personality_config: selectedAgent.personality_config
+          }
+        }
+        await sendSessionMessage(messageData)
       } else {
         await sendMessage({ text: messageText })
       }
@@ -238,15 +263,25 @@ export default function ChatInterface({ sessionData }: ChatInterfaceProps) {
             <div className="w-12 h-12 bg-gradient-to-br from-blue-500 to-indigo-600 rounded-full flex items-center justify-center shadow-lg">
               <Bot className="w-7 h-7 text-white" />
             </div>
-                         <div>
-               <h1 className="text-lg font-semibold text-gray-900">
-                 {sessionData?.assistant_name || 'AI Assistant'}
-               </h1>
-               <p className="text-sm text-gray-500 flex items-center">
-                 <span className="w-2 h-2 bg-green-500 rounded-full mr-2 animate-pulse"></span>
-                 {sessionData?.workspace_name || 'Demo Business'} Support
-               </p>
-             </div>
+            <div>
+              <h1 className="text-lg font-semibold text-gray-900">
+                {selectedAgent?.name || sessionData?.assistant_name || 'AI Assistant'}
+              </h1>
+              <p className="text-sm text-gray-500 flex items-center">
+                <span className="w-2 h-2 bg-green-500 rounded-full mr-2 animate-pulse"></span>
+                {sessionData?.workspace_name || 'Demo Business'} Support
+                {selectedAgent && (
+                  <span className="ml-2 px-2 py-1 bg-blue-100 text-blue-800 text-xs rounded-full">
+                    {selectedAgent.channel_type}
+                  </span>
+                )}
+              </p>
+              {selectedAgent?.description && (
+                <p className="text-xs text-gray-400 mt-1">
+                  {selectedAgent.description}
+                </p>
+              )}
+            </div>
           </div>
           <div className="flex items-center space-x-2">
             <span className="inline-flex items-center px-3 py-1 rounded-full text-xs font-medium bg-green-100 text-green-800 shadow-sm">
@@ -268,7 +303,8 @@ export default function ChatInterface({ sessionData }: ChatInterfaceProps) {
                Welcome to {sessionData?.workspace_name || 'Demo Business'}!
              </h3>
              <p className="text-gray-600 max-w-md mx-auto">
-               Hi {sessionData?.contact_name || 'there'}! I'm your AI assistant. How can I help you today?
+               Hi {sessionData?.contact_name || 'there'}! I'm {selectedAgent?.name || 'your AI assistant'}. 
+               {selectedAgent?.description ? ` ${selectedAgent.description}` : ' How can I help you today?'}
              </p>
             <div className="mt-6 flex flex-wrap gap-2 justify-center">
               <button 

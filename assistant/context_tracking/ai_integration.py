@@ -10,7 +10,8 @@ import logging
 from typing import Dict, List, Any, Optional, Tuple
 from django.utils import timezone
 
-from messaging.ai_utils import OpenAIClient, ResponseGenerator as BaseResponseGenerator
+from messaging.deepseek_client import DeepSeekClient
+from messaging.ai_utils import ResponseGenerator as BaseResponseGenerator
 from core.models import Conversation
 from .models import ConversationContext, WorkspaceContextSchema
 from .services import ContextExtractionService, RuleEngineService
@@ -287,7 +288,7 @@ class ContextAwareIntentClassifier:
     """
     
     def __init__(self):
-        self.openai_client = OpenAIClient()
+        self.deepseek_client = DeepSeekClient()
     
     def classify_with_context(
         self, 
@@ -383,14 +384,24 @@ Only include context_updates for fields you're confident about (>0.7 confidence)
                 {"role": "user", "content": prompt}
             ]
             
-            response = self.openai_client.client.chat.completions.create(
-                model="gpt-4",
+            # Use DeepSeek for intent classification
+            response = self.deepseek_client.chat_completion(
                 messages=messages,
                 temperature=0.1,
                 max_tokens=500
             )
             
-            response_text = response.choices[0].message.content.strip()
+            # Parse DeepSeek response format
+            if "choices" not in response or not response["choices"]:
+                logger.warning("DeepSeek intent classification failed: No choices in response")
+                return {
+                    'intent': 'other',
+                    'confidence': 0.0,
+                    'context_updates': {},
+                    'reasoning': 'DeepSeek API error'
+                }
+            
+            response_text = response["choices"][0]["message"]["content"].strip()
             
             # Parse JSON response
             try:
@@ -418,7 +429,7 @@ class ContextAwareConversationAnalyzer:
     """
     
     def __init__(self):
-        self.openai_client = OpenAIClient()
+        self.deepseek_client = DeepSeekClient()
     
     def analyze_with_context(
         self, 
@@ -505,14 +516,19 @@ Focus on actionable insights and context completeness."""
                 {"role": "user", "content": prompt}
             ]
             
-            response = self.openai_client.client.chat.completions.create(
-                model="gpt-4",
+            # Use DeepSeek for conversation analysis
+            response = self.deepseek_client.chat_completion(
                 messages=messages,
                 temperature=0.2,
                 max_tokens=1000
             )
             
-            response_text = response.choices[0].message.content.strip()
+            # Parse DeepSeek response format
+            if "choices" not in response or not response["choices"]:
+                logger.warning("DeepSeek conversation analysis failed: No choices in response")
+                return {}
+            
+            response_text = response["choices"][0]["message"]["content"].strip()
             
             # Parse JSON response
             try:

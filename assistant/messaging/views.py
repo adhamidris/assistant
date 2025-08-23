@@ -95,6 +95,12 @@ class MessageViewSet(viewsets.ModelViewSet):
             conversation.save()
             
             # Enhanced context processing for client messages
+            try:
+                from context_tracking.models import ConversationContext
+                CONTEXT_TRACKING_AVAILABLE = True
+            except ImportError:
+                CONTEXT_TRACKING_AVAILABLE = False
+                
             if message.sender == 'client' and CONTEXT_TRACKING_AVAILABLE:
                 self._process_message_context(message)
             
@@ -176,6 +182,7 @@ class MessageViewSet(viewsets.ModelViewSet):
     def _process_message_context(self, message):
         """Process message for context extraction and business rules"""
         try:
+            from context_tracking.models import ConversationContext
             # Get or create conversation context
             conversation_context = self._get_or_create_conversation_context(message.conversation)
             
@@ -219,6 +226,7 @@ class MessageViewSet(viewsets.ModelViewSet):
             
             # Enhanced intent classification with context
             try:
+                from context_tracking.ai_integration import ContextAwareIntentClassifier
                 classifier = ContextAwareIntentClassifier()
                 intent, confidence, context_updates = classifier.classify_with_context(
                     message.text, conversation_context
@@ -241,6 +249,7 @@ class MessageViewSet(viewsets.ModelViewSet):
                 import logging
                 logger = logging.getLogger(__name__)
                 logger.error(f"Intent classification failed for message {message.id}: {str(e)}")
+                # Continue without intent classification
             
         except Exception as e:
             import logging
@@ -250,6 +259,7 @@ class MessageViewSet(viewsets.ModelViewSet):
     def _get_or_create_conversation_context(self, conversation):
         """Get or create conversation context"""
         try:
+            from context_tracking.models import ConversationContext
             return ConversationContext.objects.get(conversation=conversation)
         except ConversationContext.DoesNotExist:
             # Should be created by signals, but as fallback
@@ -279,18 +289,152 @@ class MessageViewSet(viewsets.ModelViewSet):
             return None
 
 
-@api_view(['GET'])
+@api_view(['GET', 'POST'])
 @permission_classes([AllowAny])
 def session_messages(request):
-    """Get messages for a session"""
-    session_token = request.GET.get('session_token')
-    conversation_id = request.GET.get('conversation_id')
+    """Get messages for a session (GET) or create a new message (POST)"""
+    import logging
+    logger = logging.getLogger(__name__)
+    
+    # Get session token from query params or headers
+    session_token = (
+        request.GET.get('session_token') or 
+        request.headers.get('X-Session-Token') or
+        request.META.get('HTTP_X_SESSION_TOKEN')
+    )
+    
+    logger.info(f"session_messages: method={request.method}, session_token present: {bool(session_token)}")
     
     if not session_token:
+        logger.error("session_messages: No session token provided")
         return Response(
-            {'error': 'Session token is required'}, 
+            {
+                'error': 'Session token is required in query params or X-Session-Token header',
+                'debug': {
+                    'query_params': dict(request.GET),
+                    'headers_checked': ['X-Session-Token', 'HTTP_X_SESSION_TOKEN'],
+                    'headers_available': list(request.headers.keys())
+                }
+            }, 
             status=status.HTTP_400_BAD_REQUEST
         )
+    
+    # Handle POST request - create new message
+    if request.method == 'POST':
+        return _create_session_message(request, session_token, logger)
+    
+    # Handle GET request - get messages
+    else:
+        return _get_session_messages(request, session_token, logger)
+
+
+def _create_session_message(request, session_token, logger):
+    """Create a new message for a session"""
+    try:
+        # Get session
+        from core.models import Session
+        try:
+            session = Session.objects.get(session_token=session_token)
+        except Session.DoesNotExist:
+            return Response(
+                {'error': 'Invalid session token'}, 
+                status=status.HTTP_401_UNAUTHORIZED
+            )
+        
+        # Get or create conversation
+        conversation = session.conversations.order_by('-created_at').first()
+        if not conversation:
+            # Create new conversation
+            from core.models import Conversation
+            conversation = Conversation.objects.create(
+                workspace=session.contact.workspace,
+                session=session,
+                contact=session.contact,
+                status='active'
+            )
+        
+        # Validate request data - accept both 'text' and 'content' fields
+        text = request.data.get('text', '') or request.data.get('content', '')
+        text = text.strip()
+        if not text:
+            return Response(
+                {'error': 'Message text is required (use "text" or "content" field)'}, 
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        # Create message
+        message = Message.objects.create(
+            conversation=conversation,
+            sender='client',
+            message_type='text',
+            text=text,
+            status='sent'
+        )
+        
+        # Update conversation timestamp
+        conversation.save()
+        
+        # Enhanced context processing for client messages
+        try:
+            from context_tracking.models import ConversationContext
+            CONTEXT_TRACKING_AVAILABLE = True
+        except ImportError:
+            CONTEXT_TRACKING_AVAILABLE = False
+            
+        if CONTEXT_TRACKING_AVAILABLE:
+            try:
+                # Get or create conversation context
+                conversation_context = ConversationContext.objects.filter(
+                    conversation=conversation
+                ).first()
+                
+                if conversation_context and len(text) > 10:
+                    # Schedule async context extraction
+                    from django.db import transaction
+                    
+                    def extract_context():
+                        try:
+                            extraction_service = ContextExtractionService()
+                            extraction_service.extract_context_from_text(
+                                context=conversation_context,
+                                text=text,
+                                force_extraction=False
+                            )
+                        except Exception as e:
+                            logger.error(f"Context extraction failed: {str(e)}")
+                    
+                    transaction.on_commit(extract_context)
+            except Exception as e:
+                logger.error(f"Context processing failed: {str(e)}")
+        
+        # Trigger AI response if auto-reply is enabled
+        if conversation.workspace.auto_reply_mode:
+            from .tasks import generate_ai_response
+            try:
+                generate_ai_response.delay(str(message.id))
+            except Exception as e:
+                logger.warning(f"Could not schedule AI response: {str(e)}")
+                # Fallback to synchronous execution for development
+                try:
+                    generate_ai_response(str(message.id))
+                except Exception as sync_error:
+                    logger.error(f"AI response generation failed: {str(sync_error)}")
+        
+        # Return created message
+        serializer = MessageSerializer(message)
+        return Response(serializer.data, status=status.HTTP_201_CREATED)
+        
+    except Exception as e:
+        logger.error(f"Failed to create session message: {str(e)}")
+        return Response(
+            {'error': f'Failed to create message: {str(e)}'}, 
+            status=status.HTTP_500_INTERNAL_SERVER_ERROR
+        )
+
+
+def _get_session_messages(request, session_token, logger):
+    """Get messages for a session"""
+    conversation_id = request.GET.get('conversation_id') or request.GET.get('conversation')
     
     try:
         # Get session from middleware or validate session
@@ -355,6 +499,7 @@ def session_messages(request):
         })
         
     except Exception as e:
+        logger.error(f"Failed to get session messages: {str(e)}")
         return Response(
             {'error': f'Failed to get session messages: {str(e)}'}, 
             status=status.HTTP_500_INTERNAL_SERVER_ERROR

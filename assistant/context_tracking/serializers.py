@@ -2,7 +2,7 @@ from rest_framework import serializers
 from django.contrib.auth.models import User
 from .models import (
     WorkspaceContextSchema, ConversationContext, 
-    ContextHistory, BusinessRule, RuleExecution
+    ContextHistory, BusinessRule, RuleExecution, DynamicFieldSuggestion
 )
 
 
@@ -364,3 +364,55 @@ class RuleTestSerializer(serializers.Serializer):
         required=False,
         help_text="Additional trigger data for testing"
     )
+
+
+class DynamicFieldSuggestionSerializer(serializers.ModelSerializer):
+    """Serializer for AI-discovered field suggestions"""
+    
+    workspace_name = serializers.SerializerMethodField()
+    reviewed_by_name = serializers.SerializerMethodField()
+    target_schema_name = serializers.SerializerMethodField()
+    
+    class Meta:
+        model = 'context_tracking.DynamicFieldSuggestion'  # Use string reference to avoid circular imports
+        fields = [
+            'id', 'workspace', 'workspace_name', 'suggested_field_name', 'field_type',
+            'description', 'frequency_detected', 'sample_values', 'confidence_score',
+            'business_value_score', 'detection_pattern', 'related_fields', 'context_examples',
+            'is_reviewed', 'is_approved', 'reviewed_by', 'reviewed_by_name', 'reviewed_at',
+            'review_notes', 'target_schema', 'target_schema_name', 'implemented_at',
+            'implementation_notes', 'created_at', 'updated_at'
+        ]
+        read_only_fields = ['id', 'created_at', 'updated_at']
+    
+    def get_workspace_name(self, obj):
+        return obj.workspace.name if obj.workspace else None
+    
+    def get_reviewed_by_name(self, obj):
+        return obj.reviewed_by.get_full_name() if obj.reviewed_by else None
+    
+    def get_target_schema_name(self, obj):
+        return obj.target_schema.name if obj.target_schema else None
+    
+    def validate_field_type(self, value):
+        """Validate field type"""
+        valid_types = [
+            'text', 'textarea', 'number', 'decimal', 'date', 'datetime',
+            'boolean', 'choice', 'multi_choice', 'email', 'phone', 'url',
+            'tags', 'priority', 'status'
+        ]
+        if value not in valid_types:
+            raise serializers.ValidationError(f"Invalid field type: {value}")
+        return value
+    
+    def validate_confidence_score(self, value):
+        """Validate confidence score is between 0 and 1"""
+        if not 0 <= value <= 1:
+            raise serializers.ValidationError("Confidence score must be between 0 and 1")
+        return value
+    
+    def validate_business_value_score(self, value):
+        """Validate business value score is between 0 and 1"""
+        if not 0 <= value <= 1:
+            raise serializers.ValidationError("Business value score must be between 0 and 1")
+        return value

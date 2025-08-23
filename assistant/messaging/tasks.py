@@ -8,7 +8,9 @@ import logging
 
 from .models import Message, AudioTranscription, MessageDraft
 from core.models import Conversation
-from .ai_utils import openai_client, response_generator, conversation_analyzer
+from .ai_utils import response_generator, conversation_analyzer
+from .deepseek_client import DeepSeekClient
+import os
 from notifications.services import NotificationService
 
 logger = logging.getLogger(__name__)
@@ -40,8 +42,12 @@ def process_audio_message(self, message_id):
             temp_file_path = temp_file.name
         
         try:
-            # Transcribe with OpenAI Whisper
-            transcript_result = openai_client.transcribe_audio(temp_file_path)
+            # Transcribe with DeepSeek (note: DeepSeek doesn't have audio transcription yet)
+            # For now, we'll skip transcription and mark as failed
+            transcript_result = {
+                'success': False,
+                'error': 'Audio transcription not available with DeepSeek yet'
+            }
             
             if not transcript_result['success']:
                 raise Exception(transcript_result.get('error', 'Transcription failed'))
@@ -153,8 +159,11 @@ def generate_ai_response(self, message_id, force_generation=False):
         except Exception as e:
             logger.warning(f"Knowledge base search failed: {str(e)}")
         
-        # Classify intent
-        intent, confidence = openai_client.classify_intent(message.text)
+        # Classify intent using DeepSeek
+        deepseek_client = DeepSeekClient()
+        intent_result = deepseek_client.analyze_intent(message.text)
+        intent = intent_result.get('intent', 'other')
+        confidence = intent_result.get('confidence', 0.5)
         
         # Generate response using DeepSeek
         response_result = response_generator.generate_response(

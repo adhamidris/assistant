@@ -1,10 +1,11 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { MessageSquare, User, Clock, CheckCircle, AlertCircle, Eye } from 'lucide-react'
+import { MessageSquare, User, Clock, CheckCircle, AlertCircle, Eye, Settings, Tag, BarChart3 } from 'lucide-react'
 import { getConversations, getMessages, deleteMessage, replyToMessage } from '@/lib/api'
 import { formatRelativeTime, getIntentColor, getIntentLabel } from '@/lib/utils'
 import MessageDetails from './MessageDetails'
+import ContextSidebar from './ContextSidebar'
 
 interface ConversationListProps {
   workspaceId: string
@@ -32,6 +33,7 @@ export default function ConversationList({ workspaceId }: ConversationListProps)
   const [filter, setFilter] = useState<'all' | 'active' | 'resolved'>('all')
   const [selectedMessage, setSelectedMessage] = useState<any>(null)
   const [showMessageDetails, setShowMessageDetails] = useState(false)
+  const [showContextSidebar, setShowContextSidebar] = useState(false)
 
   useEffect(() => {
     loadConversations()
@@ -96,6 +98,16 @@ export default function ConversationList({ workspaceId }: ConversationListProps)
     setShowMessageDetails(true)
   }
 
+  const handleContextUpdate = async (contextUpdate: any) => {
+    try {
+      // Update the context via API
+      console.log('Context update:', contextUpdate)
+      // TODO: Implement actual context update API call
+    } catch (error) {
+      console.error('Failed to update context:', error)
+    }
+  }
+
   const handleMessageDelete = async (messageId: string) => {
     try {
       await deleteMessage(messageId)
@@ -144,10 +156,23 @@ export default function ConversationList({ workspaceId }: ConversationListProps)
               {filterOption}
             </button>
           ))}
+          {selectedConversation && (
+            <button
+              onClick={() => setShowContextSidebar(!showContextSidebar)}
+              className={`px-3 py-1 text-sm rounded-full capitalize flex items-center space-x-2 ${
+                showContextSidebar
+                  ? 'bg-blue-100 text-blue-800'
+                  : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+              }`}
+            >
+              <Settings className="w-4 h-4" />
+              <span>Context</span>
+            </button>
+          )}
         </div>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+      <div className={`grid gap-6 ${showContextSidebar ? 'grid-cols-1 lg:grid-cols-3' : 'grid-cols-1 lg:grid-cols-2'}`}>
         {/* Conversations List */}
         <div className="space-y-3">
           {conversations.length === 0 ? (
@@ -255,6 +280,16 @@ export default function ConversationList({ workspaceId }: ConversationListProps)
             </div>
           )}
         </div>
+
+        {/* Context Sidebar */}
+        {showContextSidebar && selectedConversation && (
+          <div className="lg:col-span-1">
+            <ContextSidebar
+              conversationId={selectedConversation}
+              onContextUpdate={handleContextUpdate}
+            />
+          </div>
+        )}
       </div>
 
       {/* Message Details Modal */}

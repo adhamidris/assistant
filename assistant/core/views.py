@@ -215,24 +215,73 @@ def resolve_portal_slug(request, slug_path):
         # Parse the slug path - it could be "company-name/employee-name" or "user-name"
         slug_parts = slug_path.split('/')
         
-        # Try to find workspace by matching the portal slug
-        workspaces = Workspace.objects.select_related('owner', 'owner__app_profile').all()
+        # First, try to find workspace by exact portal slug match
+        workspaces = Workspace.objects.select_related('owner').all()
         
         for workspace in workspaces:
             try:
-                if workspace.portal_slug == slug_path:
+                # Try to get the computed portal slug
+                computed_slug = workspace.portal_slug
+                if computed_slug == slug_path:
                     return Response({
                         'workspace_id': str(workspace.id),
                         'workspace_name': workspace.name,
                         'assistant_name': workspace.assistant_name,
-                        'portal_slug': workspace.portal_slug,
+                        'portal_slug': computed_slug,
                         'found': True
                     })
             except Exception:
                 # Skip workspaces with missing app_profile
                 continue
         
-        # If no exact match found, return not found
+        # If no exact match found, try to find by workspace name or ID
+        # This provides a fallback for testing and development
+        for workspace in workspaces:
+            # Try matching by workspace name (case-insensitive)
+            if workspace.name.lower() == slug_path.lower():
+                try:
+                    computed_slug = workspace.portal_slug
+                    return Response({
+                        'workspace_id': str(workspace.id),
+                        'workspace_name': workspace.name,
+                        'assistant_name': workspace.assistant_name,
+                        'portal_slug': computed_slug,
+                        'found': True
+                    })
+                except Exception:
+                    # If portal_slug fails, use a fallback
+                    fallback_slug = workspace.get_simple_slug()
+                    return Response({
+                        'workspace_id': str(workspace.id),
+                        'workspace_name': workspace.name,
+                        'assistant_name': workspace.assistant_name,
+                        'portal_slug': fallback_slug,
+                        'found': True
+                    })
+            
+            # Try matching by workspace ID
+            if str(workspace.id) == slug_path:
+                try:
+                    computed_slug = workspace.portal_slug
+                    return Response({
+                        'workspace_id': str(workspace.id),
+                        'workspace_name': workspace.name,
+                        'assistant_name': workspace.assistant_name,
+                        'portal_slug': computed_slug,
+                        'found': True
+                    })
+                except Exception:
+                    # If portal_slug fails, use a fallback
+                    fallback_slug = workspace.get_simple_slug()
+                    return Response({
+                        'workspace_id': str(workspace.id),
+                        'workspace_name': workspace.name,
+                        'assistant_name': workspace.assistant_name,
+                        'portal_slug': fallback_slug,
+                        'found': True
+                    })
+        
+        # If no match found, return not found
         return Response({
             'found': False,
             'error': 'Portal not found'
@@ -242,4 +291,44 @@ def resolve_portal_slug(request, slug_path):
         return Response({
             'found': False,
             'error': f'Failed to resolve portal: {str(e)}'
+        }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+@api_view(['GET'])
+@permission_classes([AllowAny])
+def test_portal_resolution(request):
+    """Test endpoint to debug portal resolution"""
+    try:
+        workspaces = Workspace.objects.all()
+        workspace_data = []
+        
+        for workspace in workspaces:
+            try:
+                portal_slug = workspace.portal_slug
+                simple_slug = workspace.get_simple_slug()
+                workspace_data.append({
+                    'id': str(workspace.id),
+                    'name': workspace.name,
+                    'portal_slug': portal_slug,
+                    'simple_slug': simple_slug,
+                    'has_owner': hasattr(workspace, 'owner'),
+                    'owner_username': workspace.owner.username if hasattr(workspace, 'owner') else None,
+                })
+            except Exception as e:
+                workspace_data.append({
+                    'id': str(workspace.id),
+                    'name': workspace.name,
+                    'error': str(e),
+                    'portal_slug': 'ERROR',
+                    'simple_slug': workspace.get_simple_slug(),
+                })
+        
+        return Response({
+            'workspaces': workspace_data,
+            'total': len(workspaces)
+        })
+        
+    except Exception as e:
+        return Response({
+            'error': f'Failed to get workspace data: {str(e)}'
         }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)

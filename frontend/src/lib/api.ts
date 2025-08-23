@@ -249,15 +249,17 @@ export const getSessionMessages = async (conversationId?: string): Promise<Messa
     }
     
     const data = await response.json()
-    console.log('getSessionMessages: Success, got', data.results?.length || data.length, 'messages')
-    return data.results || data
+    console.log('getSessionMessages: Success, got', data.messages?.length || data.results?.length || data.length, 'messages')
+    return data.messages || data.results || data
   } catch (error) {
     console.error('Failed to fetch session messages:', error)
-    console.error('Error details:', {
-      name: error.name,
-      message: error.message,
-      stack: error.stack
-    })
+    if (error instanceof Error) {
+      console.error('Error details:', {
+        name: error.name,
+        message: error.message,
+        stack: error.stack
+      })
+    }
     return []
   }
 }
@@ -286,7 +288,10 @@ export const sendSessionMessage = async (data: SendMessageRequest): Promise<Mess
     return response.json()
   } catch (error) {
     console.error('Failed to send session message:', error)
-    throw error
+    if (error instanceof Error) {
+      throw error
+    }
+    throw new Error('Unknown error occurred')
   }
 }
 
@@ -368,6 +373,146 @@ export const replyToMessage = async (messageId: string, text: string): Promise<M
 
 export const deleteMessage = async (messageId: string): Promise<void> => {
   await api.delete(`/api/v1/messaging/messages/${messageId}/`)
+}
+
+// Context Tracking API Functions
+export const getContextSchemas = async (workspaceId: string) => {
+  const response = await api.get(`/api/v1/context/workspaces/${workspaceId}/schemas/`)
+  return response.data
+}
+
+export const createContextSchema = async (workspaceId: string, data: any) => {
+  const response = await api.post(`/api/v1/context/workspaces/${workspaceId}/schemas/`, {
+    ...data,
+    workspace: workspaceId
+  })
+  return response.data
+}
+
+export const updateContextSchema = async (workspaceId: string, schemaId: string, data: any) => {
+  const response = await api.put(`/api/v1/context/workspaces/${workspaceId}/schemas/${schemaId}/`, {
+    ...data,
+    workspace: workspaceId
+  })
+  return response.data
+}
+
+export const deleteContextSchema = async (workspaceId: string, schemaId: string) => {
+  await api.delete(`/api/v1/context/workspaces/${workspaceId}/schemas/${schemaId}/`)
+}
+
+// Business Rules API Functions
+export const getBusinessRules = async (workspaceId: string) => {
+  const response = await api.get(`/api/v1/context/workspaces/${workspaceId}/rules/`)
+  return response.data
+}
+
+export const createBusinessRule = async (workspaceId: string, data: any) => {
+  const response = await api.post(`/api/v1/context/workspaces/${workspaceId}/rules/`, {
+    ...data,
+    workspace: workspaceId
+  })
+  return response.data
+}
+
+export const updateBusinessRule = async (workspaceId: string, ruleId: string, data: any) => {
+  const response = await api.put(`/api/v1/context/workspaces/${workspaceId}/rules/${ruleId}/`, {
+    ...data,
+    workspace: workspaceId
+  })
+  return response.data
+}
+
+export const deleteBusinessRule = async (workspaceId: string, ruleId: string) => {
+  await api.delete(`/api/v1/context/workspaces/${workspaceId}/rules/${ruleId}/`)
+}
+
+export const toggleBusinessRule = async (workspaceId: string, ruleId: string, isActive: boolean) => {
+  const response = await api.patch(`/api/v1/context/workspaces/${workspaceId}/rules/${ruleId}/`, { is_active: isActive })
+  return response.data
+}
+
+export const testBusinessRule = async (workspaceId: string, ruleId: string) => {
+  const response = await api.post(`/api/v1/context/workspaces/${workspaceId}/rules/${ruleId}/test/`)
+  return response.data
+}
+
+// Business Templates API Functions
+export const getBusinessTemplates = async () => {
+  const response = await api.get('/api/v1/core/business-templates/')
+  return response.data
+}
+
+export const getBusinessTemplate = async (templateId: string) => {
+  const response = await api.get(`/api/v1/core/business-templates/${templateId}/`)
+  return response.data
+}
+
+export const applyBusinessTemplate = async (templateId: string, workspaceId: string) => {
+  const response = await api.post(`/api/v1/core/business-templates/${templateId}/apply-to-workspace/`, {
+    workspace: workspaceId
+  })
+  return response.data
+}
+
+// Field Suggestions API Functions
+export const getFieldSuggestions = async (workspaceId: string) => {
+  const response = await api.get(`/api/v1/context/field-suggestions/?workspace=${workspaceId}`)
+  return response.data
+}
+
+export const generateFieldSuggestions = async (workspaceId: string, limit: number = 10) => {
+  const response = await api.post('/api/v1/context/field-suggestions/generate/', {
+    workspace_id: workspaceId,
+    limit
+  })
+  return response.data
+}
+
+export const approveFieldSuggestion = async (suggestionId: string, targetSchemaId?: string, notes?: string) => {
+  const response = await api.post(`/api/v1/context/field-suggestions/${suggestionId}/approve/`, {
+    target_schema_id: targetSchemaId,
+    notes
+  })
+  return response.data
+}
+
+export const rejectFieldSuggestion = async (suggestionId: string, notes?: string) => {
+  const response = await api.post(`/api/v1/context/field-suggestions/${suggestionId}/reject/`, {
+    notes
+  })
+  return response.data
+}
+
+export const getFieldSuggestionAnalytics = async (workspaceId: string) => {
+  const response = await api.get(`/api/v1/context/field-suggestions/analytics/?workspace_id=${workspaceId}`)
+  return response.data
+}
+
+export const getPendingFieldSuggestions = async (workspaceId: string) => {
+  const response = await api.get(`/api/v1/context/field-suggestions/pending/?workspace_id=${workspaceId}`)
+  return response.data
+}
+
+export const getReviewedFieldSuggestions = async (workspaceId: string) => {
+  const response = await api.get(`/api/v1/context/field-suggestions/reviewed/?workspace_id=${workspaceId}`)
+  return response.data
+}
+
+// Intelligent Discovery API Functions
+export const analyzeConversations = async (workspaceId: string) => {
+  const response = await api.post('/api/v1/context/intelligent-discovery/analyze-conversations/', {
+    workspace_id: workspaceId
+  })
+  return response.data
+}
+
+export const discoverFields = async (workspaceId: string, limit: number = 10) => {
+  const response = await api.post('/api/v1/context/intelligent-discovery/discover-fields/', {
+    workspace_id: workspaceId,
+    limit
+  })
+  return response.data
 }
 
 export default api

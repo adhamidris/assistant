@@ -1,0 +1,174 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Portal Resolution Test</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 20px; }
+        .test-section { margin: 20px 0; padding: 20px; border: 1px solid #ccc; border-radius: 5px; }
+        .result { margin: 10px 0; padding: 10px; background: #f5f5f5; border-radius: 3px; }
+        .success { background: #d4edda; border: 1px solid #c3e6cb; }
+        .error { background: #f8d7da; border: 1px solid #f5c6cb; }
+        button { padding: 10px 20px; margin: 5px; background: #007bff; color: white; border: none; border-radius: 3px; cursor: pointer; }
+        button:hover { background: #0056b3; }
+        input { padding: 8px; margin: 5px; border: 1px solid #ccc; border-radius: 3px; width: 200px; }
+    </style>
+</head>
+<body>
+    <h1>Portal Resolution Test</h1>
+    
+    <div class="test-section">
+        <h2>Test Portal Resolution</h2>
+        <input type="text" id="slugInput" placeholder="Enter slug (e.g., cib, test-workspace)" value="cib">
+        <button onclick="testPortalResolution()">Test Portal Resolution</button>
+        <div id="portalResult" class="result"></div>
+    </div>
+    
+    <div class="test-section">
+        <h2>Test Portal Debug</h2>
+        <button onclick="testPortalDebug()">Get All Workspaces</button>
+        <div id="debugResult" class="result"></div>
+    </div>
+    
+    <div class="test-section">
+        <h2>Test Agent Loading</h2>
+        <input type="text" id="workspaceIdInput" placeholder="Enter workspace ID">
+        <button onclick="testAgentLoading()">Load Agents</button>
+        <div id="agentResult" class="result"></div>
+    </div>
+
+    <script>
+        const API_BASE = 'http://localhost:8000';
+        
+        async function testPortalResolution() {
+            const slug = document.getElementById('slugInput').value;
+            const resultDiv = document.getElementById('portalResult');
+            
+            try {
+                const response = await fetch(`${API_BASE}/api/v1/core/portal-resolve/${slug}/`);
+                const data = await response.json();
+                
+                if (data.found) {
+                    resultDiv.className = 'result success';
+                    resultDiv.innerHTML = `
+                        <h3>✅ Portal Found!</h3>
+                        <p><strong>Workspace ID:</strong> ${data.workspace_id}</p>
+                        <p><strong>Workspace Name:</strong> ${data.workspace_name}</p>
+                        <p><strong>Assistant Name:</strong> ${data.assistant_name}</p>
+                        <p><strong>Portal Slug:</strong> ${data.portal_slug}</p>
+                    `;
+                } else {
+                    resultDiv.className = 'result error';
+                    resultDiv.innerHTML = `
+                        <h3>❌ Portal Not Found</h3>
+                        <p><strong>Error:</strong> ${data.error}</p>
+                    `;
+                }
+            } catch (error) {
+                resultDiv.className = 'result error';
+                resultDiv.innerHTML = `
+                    <h3>❌ Request Failed</h3>
+                    <p><strong>Error:</strong> ${error.message}</p>
+                `;
+            }
+        }
+        
+        async function testPortalDebug() {
+            const resultDiv = document.getElementById('debugResult');
+            
+            try {
+                const response = await fetch(`${API_BASE}/api/v1/core/test-portal/`);
+                const data = await response.json();
+                
+                if (data.workspaces) {
+                    resultDiv.className = 'result success';
+                    let html = `<h3>✅ Found ${data.total} Workspaces</h3>`;
+                    
+                    data.workspaces.forEach(ws => {
+                        html += `
+                            <div style="border: 1px solid #ddd; margin: 10px 0; padding: 10px; border-radius: 3px;">
+                                <p><strong>ID:</strong> ${ws.id}</p>
+                                <p><strong>Name:</strong> ${ws.name}</p>
+                                <p><strong>Portal Slug:</strong> ${ws.portal_slug}</p>
+                                <p><strong>Simple Slug:</strong> ${ws.simple_slug}</p>
+                                <p><strong>Has Owner:</strong> ${ws.has_owner}</p>
+                                <p><strong>Owner Username:</strong> ${ws.owner_username || 'None'}</p>
+                                ${ws.error ? `<p><strong>Error:</strong> ${ws.error}</p>` : ''}
+                            </div>
+                        `;
+                    });
+                    
+                    resultDiv.innerHTML = html;
+                } else {
+                    resultDiv.className = 'result error';
+                    resultDiv.innerHTML = `<h3>❌ Failed to get workspaces</h3><p>${data.error}</p>`;
+                }
+            } catch (error) {
+                resultDiv.className = 'result error';
+                resultDiv.innerHTML = `
+                    <h3>❌ Request Failed</h3>
+                    <p><strong>Error:</strong> ${error.message}</p>
+                `;
+            }
+        }
+        
+        async function testAgentLoading() {
+            const workspaceId = document.getElementById('workspaceIdInput').value;
+            const resultDiv = document.getElementById('agentResult');
+            
+            if (!workspaceId) {
+                resultDiv.className = 'result error';
+                resultDiv.innerHTML = '<h3>❌ Please enter a workspace ID</h3>';
+                return;
+            }
+            
+            try {
+                const response = await fetch(`${API_BASE}/api/v1/core/workspaces/${workspaceId}/agents/`);
+                const data = await response.json();
+                
+                if (data.results) {
+                    resultDiv.className = 'result success';
+                    let html = `<h3>✅ Found ${data.results.length} Agents</h3>`;
+                    
+                    data.results.forEach(agent => {
+                        html += `
+                            <div style="border: 1px solid #ddd; margin: 10px 0; padding: 10px; border-radius: 3px;">
+                                <p><strong>ID:</strong> ${agent.id}</p>
+                                <p><strong>Name:</strong> ${agent.name}</p>
+                                <p><strong>Slug:</strong> ${agent.slug}</p>
+                                <p><strong>Description:</strong> ${agent.description}</p>
+                                <p><strong>Channel Type:</strong> ${agent.channel_type}</p>
+                                <p><strong>Active:</strong> ${agent.is_active ? 'Yes' : 'No'}</p>
+                                <p><strong>Default:</strong> ${agent.is_default ? 'Yes' : 'No'}</p>
+                            </div>
+                        `;
+                    });
+                    
+                    resultDiv.innerHTML = html;
+                } else {
+                    resultDiv.className = 'result error';
+                    resultDiv.innerHTML = `<h3>❌ Failed to get agents</h3><p>${data.error || 'Unknown error'}</p>`;
+                }
+            } catch (error) {
+                resultDiv.className = 'result error';
+                resultDiv.innerHTML = `
+                    <h3>❌ Request Failed</h3>
+                    <p><strong>Error:</strong> ${error.message}</p>
+                `;
+            }
+        }
+        
+        // Auto-fill workspace ID when portal resolution succeeds
+        document.getElementById('portalResult').addEventListener('DOMSubtreeModified', function() {
+            const resultDiv = document.getElementById('portalResult');
+            if (resultDiv.classList.contains('success')) {
+                const workspaceId = resultDiv.querySelector('p strong:contains("Workspace ID:")')?.nextSibling?.textContent?.trim();
+                if (workspaceId) {
+                    document.getElementById('workspaceIdInput').value = workspaceId;
+                }
+            }
+        });
+    </script>
+</body>
+</html>

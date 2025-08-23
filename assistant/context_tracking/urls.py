@@ -5,6 +5,7 @@ from .views import (
     WorkspaceContextSchemaViewSet, ConversationContextViewSet, 
     BusinessRuleViewSet, ContextAnalyticsView, BulkContextOperationsView
 )
+from . import advanced_views, field_suggestion_views
 
 app_name = 'context_tracking'
 
@@ -86,4 +87,73 @@ urlpatterns = [
     path('workspaces/<uuid:workspace_id>/analytics/', 
          ContextAnalyticsView.as_view(), 
          name='workspace-analytics'),
+    
+    # Advanced Business Rules
+    path('workspaces/<uuid:workspace_id>/advanced-rules/analytics/', 
+         advanced_views.AdvancedBusinessRuleViewSet.as_view({'get': 'analytics_dashboard'}), 
+         name='advanced-rules-analytics'),
+    path('workspaces/<uuid:workspace_id>/advanced-rules/templates/', 
+         advanced_views.AdvancedBusinessRuleViewSet.as_view({'get': 'rule_templates'}), 
+         name='advanced-rules-templates'),
+    path('workspaces/<uuid:workspace_id>/advanced-rules/create-from-template/', 
+         advanced_views.AdvancedBusinessRuleViewSet.as_view({'post': 'create_from_template'}), 
+         name='advanced-rules-create-from-template'),
+    path('workspaces/<uuid:workspace_id>/advanced-rules/insights/', 
+         advanced_views.AdvancedBusinessRuleViewSet.as_view({'get': 'rule_insights'}), 
+         name='advanced-rules-insights'),
+    
+    # Workflow Management
+    path('workspaces/<uuid:workspace_id>/workflows/active/', 
+         advanced_views.WorkflowManagementViewSet.as_view({'get': 'active_workflows'}), 
+         name='workflows-active'),
+    path('workspaces/<uuid:workspace_id>/workflows/resume/', 
+         advanced_views.WorkflowManagementViewSet.as_view({'post': 'resume_workflow'}), 
+         name='workflows-resume'),
+    path('workspaces/<uuid:workspace_id>/workflows/reset/', 
+         advanced_views.WorkflowManagementViewSet.as_view({'post': 'reset_workflow'}), 
+         name='workflows-reset'),
+    
+    # Rule Testing and Execution
+    path('rules/<uuid:pk>/test/', 
+         advanced_views.AdvancedBusinessRuleViewSet.as_view({'post': 'test_rule'}), 
+         name='rule-test'),
+    path('rules/<uuid:pk>/execute-workflow/', 
+         advanced_views.AdvancedBusinessRuleViewSet.as_view({'post': 'execute_workflow'}), 
+         name='rule-execute-workflow'),
+    
+    # Field Suggestions and Intelligent Discovery
+    path('field-suggestions/', 
+         field_suggestion_views.FieldSuggestionViewSet.as_view({'get': 'list', 'post': 'create'}), 
+         name='field-suggestions-list'),
+    path('field-suggestions/<uuid:pk>/', 
+         field_suggestion_views.FieldSuggestionViewSet.as_view({
+             'get': 'retrieve', 'put': 'update', 'patch': 'partial_update', 'delete': 'destroy'
+         }), 
+         name='field-suggestions-detail'),
+    path('field-suggestions/generate/', 
+         field_suggestion_views.FieldSuggestionViewSet.as_view({'post': 'generate_suggestions'}), 
+         name='field-suggestions-generate'),
+    path('field-suggestions/<uuid:pk>/approve/', 
+         field_suggestion_views.FieldSuggestionViewSet.as_view({'post': 'approve_suggestion'}), 
+         name='field-suggestions-approve'),
+    path('field-suggestions/<uuid:pk>/reject/', 
+         field_suggestion_views.FieldSuggestionViewSet.as_view({'post': 'reject_suggestion'}), 
+         name='field-suggestions-reject'),
+    path('field-suggestions/analytics/', 
+         field_suggestion_views.FieldSuggestionViewSet.as_view({'get': 'get_analytics'}), 
+         name='field-suggestions-analytics'),
+    path('field-suggestions/pending/', 
+         field_suggestion_views.FieldSuggestionViewSet.as_view({'get': 'get_pending_suggestions'}), 
+         name='field-suggestions-pending'),
+    path('field-suggestions/reviewed/', 
+         field_suggestion_views.FieldSuggestionViewSet.as_view({'get': 'get_reviewed_suggestions'}), 
+         name='field-suggestions-reviewed'),
+    
+    # Intelligent Discovery
+    path('intelligent-discovery/analyze-conversations/', 
+         field_suggestion_views.IntelligentDiscoveryViewSet.as_view({'post': 'analyze_conversations'}), 
+         name='intelligent-discovery-analyze'),
+    path('intelligent-discovery/discover-fields/', 
+         field_suggestion_views.IntelligentDiscoveryViewSet.as_view({'post': 'discover_fields'}), 
+         name='intelligent-discovery-discover'),
 ]

@@ -9,6 +9,7 @@ https://docs.djangoproject.com/en/5.2/ref/settings/
 """
 
 import os
+import socket
 from pathlib import Path
 from decouple import config
 
@@ -165,10 +166,27 @@ REST_FRAMEWORK = {
 }
 
 # CORS Settings
-CORS_ALLOWED_ORIGINS = [
-    "http://localhost:3000",
-    "http://127.0.0.1:3000",
-]
+if DEBUG:
+    # Development: Allow all origins for easier development
+    CORS_ALLOW_ALL_ORIGINS = True
+    CORS_ALLOWED_ORIGINS = []
+    # Also allow all local network IPs
+    CORS_ALLOWED_ORIGIN_REGEXES = [
+        r"^http://localhost:\d+$",
+        r"^http://127\.0\.0\.1:\d+$",
+        r"^http://192\.168\.\d{1,3}\.\d{1,3}:\d+$",  # Local network IPs
+        r"^http://10\.\d{1,3}\.\d{1,3}\.\d{1,3}:\d+$",  # Private network IPs
+        r"^http://172\.(1[6-9]|2[0-9]|3[01])\.\d{1,3}\.\d{1,3}:\d+$",  # Private network IPs
+    ]
+else:
+    # Production: Restrict to specific origins
+    CORS_ALLOW_ALL_ORIGINS = False
+    CORS_ALLOWED_ORIGINS = [
+        "http://localhost:3000",
+        "http://127.0.0.1:3000",
+        "https://your-production-domain.com",  # Replace with your actual domain
+    ]
+
 CORS_ALLOW_CREDENTIALS = True
 CORS_ALLOW_ALL_HEADERS = True
 CORS_ALLOW_METHODS = [
@@ -188,6 +206,46 @@ CORS_ALLOW_HEADERS = [
     'x-requested-with',
     'x-session-token',  # Add our custom session token header
 ]
+
+# Additional CORS settings for better compatibility
+CORS_EXPOSE_HEADERS = [
+    'content-type',
+    'x-session-token',
+]
+
+# CSRF Settings for CORS
+def get_local_ip():
+    """Get the local network IP address"""
+    try:
+        # Connect to a remote address to determine the local IP
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        s.connect(("8.8.8.8", 80))
+        ip = s.getsockname()[0]
+        s.close()
+        return ip
+    except:
+        return "127.0.0.1"
+
+# Get current machine's local IP
+LOCAL_IP = get_local_ip()
+
+CSRF_TRUSTED_ORIGINS = [
+    "http://localhost:3000",
+    "http://127.0.0.1:3000",
+    "http://localhost:8000",
+    "http://127.0.0.1:8000",
+    f"http://{LOCAL_IP}:3000",  # Dynamic local network IP
+    f"http://{LOCAL_IP}:8000",  # Dynamic local network IP for backend
+]
+
+if DEBUG:
+    # In development, also add common network ranges
+    CSRF_TRUSTED_ORIGINS.extend([
+        "http://192.168.8.36:3000",
+        "http://192.168.8.36:8000", 
+        "http://192.168.1.0:3000",
+        "http://192.168.1.0:8000",
+    ])
 
 # Celery Configuration
 CELERY_BROKER_URL = config('REDIS_URL', default='redis://localhost:6379/0')

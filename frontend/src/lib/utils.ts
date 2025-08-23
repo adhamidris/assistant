@@ -1,5 +1,5 @@
-import { type ClassValue, clsx } from 'clsx'
-import { twMerge } from 'tailwind-merge'
+import { type ClassValue, clsx } from "clsx"
+import { twMerge } from "tailwind-merge"
 import { format, formatDistanceToNow, isToday, isYesterday } from 'date-fns'
 
 export function cn(...inputs: ClassValue[]) {
@@ -267,8 +267,8 @@ export function getLocalStorageItem(key: string): string | null {
   } catch (error) {
     console.warn(`Error reading localStorage key "${key}":`, error)
     return null
+    }
   }
-}
 
 export function setLocalStorageItem(key: string, value: string): boolean {
   try {
@@ -285,7 +285,7 @@ export function removeLocalStorageItem(key: string): boolean {
   try {
     if (typeof window === 'undefined') return false
     localStorage.removeItem(key)
-    return true
+    return false
   } catch (error) {
     console.warn(`Error removing localStorage key "${key}":`, error)
     return false

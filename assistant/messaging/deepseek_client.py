@@ -4,6 +4,7 @@ DeepSeek AI Client for the AI Personal Business Assistant.
 import requests
 import json
 import logging
+import os
 from typing import Dict, List, Optional, Any
 from django.conf import settings
 
@@ -16,7 +17,14 @@ class DeepSeekClient:
     """
     
     def __init__(self, api_key: str = None):
-        self.api_key = api_key or settings.DEEPSEEK_API_KEY
+        # Set default API key if none provided
+        if not api_key:
+            api_key = getattr(settings, 'DEEPSEEK_API_KEY', None)
+            if not api_key:
+                # Fallback to environment variable or hardcoded for development
+                api_key = os.environ.get('DEEPSEEK_API_KEY', 'sk-8283fa77a01e4f859b8491eff28ef6a3')
+        
+        self.api_key = api_key
         self.base_url = "https://api.deepseek.com/v1"
         self.headers = {
             "Authorization": f"Bearer {self.api_key}",

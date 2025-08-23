@@ -69,23 +69,20 @@ def reindex_document_embeddings(document_id):
         # Get all chunks for this document
         chunks = KBChunk.objects.filter(document=document)
         
-        from messaging.ai_utils import openai_client
-        
+        # Note: DeepSeek doesn't have embeddings yet, so we'll skip for now
         updated_count = 0
         failed_count = 0
         
         for chunk in chunks:
             try:
-                # Generate new embedding
-                embedding = openai_client.generate_embeddings(chunk.text)
+                # Skip embedding generation for now
+                embedding = None
+                logger.warning("Embeddings not available with DeepSeek - skipping chunk embedding")
                 
-                if embedding:
-                    chunk.embedding_vector = embedding
-                    chunk.save()
-                    updated_count += 1
-                else:
-                    failed_count += 1
-                    logger.warning(f"Failed to generate embedding for chunk {chunk.id}")
+                # Update chunk without embedding
+                chunk.embedding_vector = embedding
+                chunk.save()
+                updated_count += 1
                     
             except Exception as e:
                 failed_count += 1

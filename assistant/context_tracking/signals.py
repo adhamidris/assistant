@@ -359,6 +359,22 @@ def migrate_existing_conversations_to_new_schema(sender, instance, created, **kw
             logger.error(f"Failed to check for migration opportunities: {str(e)}")
 
 
+# Signal to create default business rules for new workspaces
+@receiver(post_save, sender='core.Workspace')
+def create_default_business_rules(sender, instance, created, **kwargs):
+    """
+    Create default business rules when a new workspace is created
+    """
+    if created:
+        try:
+            from .services import RuleEngineService
+            rule_engine = RuleEngineService()
+            rule_engine.create_default_rules_for_workspace(str(instance.id))
+            logger.info(f"Created default business rules for new workspace: {instance.name}")
+        except Exception as e:
+            logger.error(f"Failed to create default business rules for workspace {instance.id}: {str(e)}")
+
+
 # Celery task for background context processing (if needed)
 def schedule_context_extraction(context_id, message_text):
     """

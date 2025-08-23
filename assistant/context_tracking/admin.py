@@ -6,7 +6,7 @@ import json
 
 from .models import (
     WorkspaceContextSchema, ConversationContext, 
-    ContextHistory, BusinessRule, RuleExecution
+    ContextHistory, BusinessRule, RuleExecution, DynamicFieldSuggestion
 )
 
 
@@ -399,3 +399,75 @@ class RuleExecutionAdmin(admin.ModelAdmin):
             return "No execution result"
         return format_html("<pre>{}</pre>", json.dumps(obj.execution_result, indent=2))
     execution_result_display.short_description = 'Execution Result'
+
+
+@admin.register(DynamicFieldSuggestion)
+class DynamicFieldSuggestionAdmin(admin.ModelAdmin):
+    list_display = [
+        'suggested_field_name', 'workspace', 'field_type', 'confidence_score', 
+        'business_value_score', 'is_reviewed', 'is_approved', 'created_at'
+    ]
+    list_filter = [
+        'field_type', 'is_reviewed', 'is_approved', 'workspace', 'created_at'
+    ]
+    search_fields = [
+        'suggested_field_name', 'description', 'workspace__name'
+    ]
+    readonly_fields = [
+        'id', 'frequency_detected', 'sample_values', 'confidence_score', 
+        'business_value_score', 'detection_pattern', 'related_fields', 
+        'context_examples', 'created_at', 'updated_at'
+    ]
+    
+    fieldsets = (
+        ('Field Suggestion', {
+            'fields': ('workspace', 'suggested_field_name', 'field_type', 'description')
+        }),
+        ('AI Analysis', {
+            'fields': ('frequency_detected', 'sample_values', 'confidence_score', 'business_value_score'),
+            'classes': ('collapse',)
+        }),
+        ('Pattern Analysis', {
+            'fields': ('detection_pattern', 'related_fields', 'context_examples'),
+            'classes': ('collapse',)
+        }),
+        ('Review Workflow', {
+            'fields': ('is_reviewed', 'is_approved', 'reviewed_by', 'reviewed_at', 'review_notes')
+        }),
+        ('Implementation', {
+            'fields': ('target_schema', 'implemented_at', 'implementation_notes'),
+            'classes': ('collapse',)
+        }),
+        ('Metadata', {
+            'fields': ('created_at', 'updated_at'),
+            'classes': ('collapse',)
+        })
+    )
+    
+    actions = ['approve_suggestions', 'reject_suggestions']
+    
+    def approve_suggestions(self, request, queryset):
+        """Approve selected field suggestions"""
+        approved_count = 0
+        for suggestion in queryset.filter(is_reviewed=False):
+            suggestion.approve(request.user)
+            approved_count += 1
+        
+        self.message_user(
+            request, 
+            f'Successfully approved {approved_count} field suggestions.'
+        )
+    approve_suggestions.short_description = 'Approve selected suggestions'
+    
+    def reject_suggestions(self, request, queryset):
+        """Reject selected field suggestions"""
+        rejected_count = 0
+        for suggestion in queryset.filter(is_reviewed=False):
+            suggestion.reject(request.user, 'Bulk rejected via admin')
+            rejected_count += 1
+        
+        self.message_user(
+            request, 
+            f'Successfully rejected {rejected_count} field suggestions.'
+        )
+    reject_suggestions.short_description = 'Reject selected suggestions'

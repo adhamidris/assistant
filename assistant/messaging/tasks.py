@@ -4,6 +4,7 @@ from django.utils import timezone
 import requests
 import os
 import tempfile
+import json
 import logging
 
 from .models import Message, AudioTranscription, MessageDraft
@@ -111,12 +112,12 @@ def process_audio_message(self, message_id):
 @shared_task(bind=True, max_retries=3)
 def generate_ai_response(self, message_id, force_generation=False):
     """
-    Generate AI response using DeepSeek and knowledge base
+    Generate AI response using Enhanced AI Service with agent-centric architecture
     """
     try:
         print(f"🤖 Generating AI response for message: {message_id}")
         message = Message.objects.select_related(
-            'conversation', 'conversation__workspace'
+            'conversation', 'conversation__workspace', 'conversation__ai_agent'
         ).get(id=message_id)
         
         conversation = message.conversation
@@ -130,62 +131,27 @@ def generate_ai_response(self, message_id, force_generation=False):
         
         print(f"✅ Auto-reply enabled for workspace: {workspace.name}")
         
-        # Get conversation history for context
-        recent_messages = Message.objects.filter(
-            conversation=conversation,
-            message_type='text'
-        ).order_by('-created_at')[:10]
+        # Use Enhanced AI Service for response generation
+        from .enhanced_ai_service import enhanced_ai_service
         
-        # Convert to format expected by response generator
-        context_messages = []
-        for msg in reversed(recent_messages):
-            context_messages.append({
-                'sender': msg.sender,
-                'text': msg.text,
-                'message_type': msg.message_type
-            })
-        
-        # Build conversation context
-        conversation_context = response_generator.build_conversation_context(context_messages)
-        
-        # Search knowledge base for relevant context
-        kb_context = ""
-        try:
-            from knowledge_base.utils import search_knowledge_base
-            kb_results = search_knowledge_base(message.text, workspace.id, limit=3)
-            if kb_results:
-                kb_context = "\n\nRelevant information from knowledge base:\n"
-                kb_context += "\n".join([result['text'] for result in kb_results])
-        except Exception as e:
-            logger.warning(f"Knowledge base search failed: {str(e)}")
-        
-        # Classify intent using DeepSeek
-        deepseek_client = DeepSeekClient()
-        intent_result = deepseek_client.analyze_intent(message.text)
-        intent = intent_result.get('intent', 'other')
-        confidence = intent_result.get('confidence', 0.5)
-        
-        # Generate response using DeepSeek
-        response_result = response_generator.generate_response(
-            user_message=message.text,
-            conversation_context=conversation_context,
-            workspace=workspace,  # Pass workspace object
-            kb_context=kb_context,
-            intent=intent
+        result = enhanced_ai_service.generate_response(
+            message=message,
+            force_generation=force_generation
         )
         
-        # Extract response text
-        if isinstance(response_result, dict):
-            if not response_result.get('success', True):
-                raise Exception(response_result.get('error', 'Response generation failed'))
-            ai_response_text = response_result.get('text', 'Sorry, I could not generate a response.')
-        else:
-            ai_response_text = str(response_result)
+        if not result['success']:
+            error_msg = result.get('error', 'AI response generation failed')
+            print(f"❌ AI response failed: {error_msg}")
+            logger.error(f"AI response generation failed for message {message_id}: {error_msg}")
+            return
         
-        # Update message intent classification
-        message.intent_classification = intent
-        message.confidence_score = confidence
-        message.save()
+        ai_response_text = result['response']
+        agent_used = result.get('agent_used', 'Unknown')
+        method_used = result.get('method_used', 'unknown')
+        metadata = result.get('metadata', {})
+        
+        print(f"✅ Generated response using {method_used} via {agent_used}: {ai_response_text[:100]}...")
+        logger.info(f"Generated AI response for message {message_id} using {method_used}")
         
         # Create response based on workspace mode
         if workspace.auto_reply_mode:
@@ -196,11 +162,17 @@ def generate_ai_response(self, message_id, force_generation=False):
                 message_type='text',
                 text=ai_response_text,
                 status='sent',
-                confidence_score=confidence
+                confidence_score=metadata.get('confidence', 0.5),
+                # Store additional metadata in a JSON field if available
+                metadata=json.dumps({
+                    'agent_used': agent_used,
+                    'method_used': method_used,
+                    'generation_metadata': metadata
+                }) if hasattr(Message, 'metadata') else None
             )
             
             print(f"✅ Created AI response: {ai_response_text[:100]}...")
-            logger.info(f"Sent automatic AI response for message {message_id}")
+            logger.info(f"Sent automatic AI response for message {message_id} using {agent_used} via {method_used}")
             
             # Send notification to business owner about new message
             try:

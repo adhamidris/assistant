@@ -111,15 +111,44 @@ class ConversationContextMiddleware(MiddlewareMixin):
         
         # Get or create active conversation for this session
         from .models import Conversation
+        from django.db import transaction
         
-        conversation, created = Conversation.objects.get_or_create(
-            session=request.session_obj,
-            status='active',
-            defaults={
-                'workspace': request.workspace,
-                'contact': request.contact,
-            }
-        )
+        try:
+            # Try to get existing active conversation
+            conversation = Conversation.objects.get(
+                session=request.session_obj,
+                status='active'
+            )
+            created = False
+        except Conversation.DoesNotExist:
+            # Create new conversation with atomic transaction to prevent race conditions
+            try:
+                with transaction.atomic():
+                    conversation = Conversation.objects.create(
+                        session=request.session_obj,
+                        status='active',
+                        workspace=request.workspace,
+                        contact=request.contact,
+                    )
+                    created = True
+            except Exception as e:
+                # If creation fails due to race condition, try to get existing one
+                try:
+                    conversation = Conversation.objects.get(
+                        session=request.session_obj,
+                        status='active'
+                    )
+                    created = False
+                except Conversation.DoesNotExist:
+                    # If still doesn't exist, re-raise the original error
+                    raise e
+        except Conversation.MultipleObjectsReturned:
+            # Handle duplicate conversations - get the most recent one
+            conversation = Conversation.objects.filter(
+                session=request.session_obj,
+                status='active'
+            ).order_by('-created_at').first()
+            created = False
         
         # Attach conversation to request
         request.conversation = conversation

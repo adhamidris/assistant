@@ -37,6 +37,7 @@ import BusinessRulesManager from '@/components/BusinessRulesManager'
 import AgentManager from '@/components/AgentManager'
 import BusinessTypeSetup from '@/components/BusinessTypeSetup'
 import FieldSuggestionsManager from '@/components/FieldSuggestionsManager'
+import { CaseManager } from '@/components/CaseManager'
 import TestingDashboard from '@/components/TestingDashboard'
 import DashboardCard from '@/components/ui/dashboard-card'
 import Sidebar from '@/components/ui/sidebar'
@@ -46,7 +47,7 @@ import StatsCard from '@/components/ui/stats-card'
 // API Configuration
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE || 'http://localhost:8000'
 
-type TabType = 'overview' | 'conversations' | 'contacts' | 'drafts' | 'appointments' | 'knowledge' | 'context-schemas' | 'business-rules' | 'ai-agents' | 'business-setup' | 'field-suggestions' | 'testing' | 'analytics' | 'portal'
+type TabType = 'overview' | 'conversations' | 'contacts' | 'drafts' | 'appointments' | 'knowledge' | 'context-schemas' | 'business-rules' | 'ai-agents' | 'business-setup' | 'field-suggestions' | 'cases' | 'testing' | 'analytics' | 'portal'
 
 interface NavigationItem {
   id: TabType
@@ -62,6 +63,7 @@ interface NavigationSection {
 
 export default function Dashboard() {
   const [activeTab, setActiveTab] = useState<TabType>('overview')
+  const router = useRouter()
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
   const [stats, setStats] = useState({
     totalConversations: 0,
@@ -77,9 +79,15 @@ export default function Dashboard() {
   // Get workspace ID from authentication
   const [workspaceId, setWorkspaceId] = useState<string | null>(null)
   const [userData, setUserData] = useState<any>(null)
-  const router = useRouter()
 
   useEffect(() => {
+    // Check for tab query parameter
+    const urlParams = new URLSearchParams(window.location.search)
+    const tabParam = urlParams.get('tab') as TabType
+    if (tabParam && ['overview', 'conversations', 'contacts', 'drafts', 'appointments', 'knowledge', 'context-schemas', 'business-rules', 'ai-agents', 'business-setup', 'field-suggestions', 'cases', 'testing', 'analytics', 'portal'].includes(tabParam)) {
+      setActiveTab(tabParam)
+    }
+
     // Wait for the browser to be ready
     const checkAuth = () => {
       // Check authentication
@@ -237,7 +245,8 @@ export default function Dashboard() {
       items: [
         { id: 'context-schemas', label: 'Context Schemas', icon: Database, badge: undefined },
         { id: 'business-rules', label: 'Business Rules', icon: Workflow, badge: undefined },
-        { id: 'business-setup', label: 'Business Setup', icon: Building2, badge: undefined }
+        { id: 'business-setup', label: 'Business Setup', icon: Building2, badge: undefined },
+        { id: 'cases', label: 'Case Management', icon: FileText, badge: undefined }
       ]
     },
     {
@@ -508,6 +517,7 @@ export default function Dashboard() {
           {activeTab === 'ai-agents' && workspaceId && <AgentManager workspaceId={workspaceId} />}
           {activeTab === 'business-setup' && workspaceId && <BusinessTypeSetup workspaceId={workspaceId} />}
           {activeTab === 'field-suggestions' && workspaceId && <FieldSuggestionsManager workspaceId={workspaceId} />}
+          {activeTab === 'cases' && workspaceId && <CaseManager workspaceId={workspaceId} />}
           {activeTab === 'testing' && <TestingDashboard />}
           {activeTab === 'analytics' && <AnalyticsDashboard />}
           {activeTab === 'portal' && workspaceId && <PortalLinkGenerator workspaceId={workspaceId} />}

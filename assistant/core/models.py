@@ -397,7 +397,8 @@ class AIAgent(models.Model):
     
     def get_portal_url(self):
         """Generate agent-specific portal URL"""
-        return f"/portal/{self.workspace.slug}/{self.slug}/"
+        workspace_slug = self.workspace.get_simple_slug()
+        return f"/portal/{workspace_slug}/{self.slug}/"
     
     def get_deployment_url(self):
         """Get the deployment URL for this agent"""

@@ -63,16 +63,20 @@ function CustomPortalContent() {
           if (workspaceData.found) {
             setWorkspaceData(workspaceData)
             
-            // Then get the specific agent using the workspace ID from the response
-            const agentResponse = await fetch(`${API_BASE_URL}/api/v1/core/workspaces/${workspaceData.workspace_id}/agents/`)
-            const agentsData = await agentResponse.json()
-            
-            const agent = agentsData.results?.find((a: AIAgent) => a.slug === agentSlug && a.is_active)
-            if (agent) {
-              setSelectedAgent(agent)
-              setStep('phone') // Skip agent selection, go directly to phone input
+            // Check portal status for the specific agent without authentication
+            const statusResponse = await fetch(`${API_BASE_URL}/api/v1/core/workspace/${workspaceData.workspace_id}/portal-status/?agent_slug=${agentSlug}`)
+            if (statusResponse.ok) {
+              const statusData = await statusResponse.json()
+              
+              if (statusData.status === 'active' && statusData.active_agent) {
+                // This is the requested agent and it's active
+                setSelectedAgent(statusData.active_agent)
+                setStep('phone') // Skip agent selection, go directly to phone input
+              } else {
+                setError(statusData.message || 'Agent not found or inactive. Please check the URL and try again.')
+              }
             } else {
-              setError('Agent not found or inactive. Please check the URL and try again.')
+              setError('Unable to verify agent status. Please try again later.')
             }
           } else {
             // Try alternative resolution methods for workspace
@@ -99,16 +103,19 @@ function CustomPortalContent() {
                   
                   setWorkspaceData(fallbackData)
                   
-                  // Then get the specific agent
-                  const agentResponse = await fetch(`${API_BASE_URL}/api/v1/core/workspaces/${matchingWorkspace.id}/agents/`)
-                  const agentsData = await agentResponse.json()
-                  
-                  const agent = agentsData.results?.find((a: AIAgent) => a.slug === agentSlug && a.is_active)
-                  if (agent) {
-                    setSelectedAgent(agent)
-                    setStep('phone') // Skip agent selection, go directly to phone input
+                  // Then check for the specific agent
+                  const statusResponse = await fetch(`${API_BASE_URL}/api/v1/core/workspace/${matchingWorkspace.id}/portal-status/?agent_slug=${agentSlug}`)
+                  if (statusResponse.ok) {
+                    const statusData = await statusResponse.json()
+                    
+                    if (statusData.status === 'active' && statusData.active_agent) {
+                      setSelectedAgent(statusData.active_agent)
+                      setStep('phone') // Skip agent selection, go directly to phone input
+                    } else {
+                      setError(statusData.message || 'Agent not found or inactive. Please check the URL and try again.')
+                    }
                   } else {
-                    setError('Agent not found or inactive. Please check the URL and try again.')
+                    setError('Unable to verify agent status. Please try again later.')
                   }
                 } else {
                   setError('Workspace not found. Please check the URL and try again.')
@@ -129,12 +136,19 @@ function CustomPortalContent() {
           if (data.found) {
             setWorkspaceData(data)
             
-            // Load agents for this workspace using the workspace ID from the response
-            const agentsResponse = await fetch(`${API_BASE_URL}/api/v1/core/workspaces/${data.workspace_id}/agents/`)
-            const agentsData = await agentsResponse.json()
-            setAgents(agentsData.results || [])
+            // Check portal status to get available agents
+            const statusResponse = await fetch(`${API_BASE_URL}/api/v1/core/workspace/${data.workspace_id}/portal-status/`)
+            if (statusResponse.ok) {
+              const statusData = await statusResponse.json()
+              
+              if (statusData.status === 'active' && statusData.active_agent) {
+                setAgents([statusData.active_agent])
+              } else {
+                setAgents([])
+              }
+            }
             
-            console.log('Portal resolved with agents:', data, agentsData)
+            console.log('Portal resolved:', data)
           } else {
             // Try alternative resolution methods
             console.log('Direct portal resolution failed, trying alternative methods...')
@@ -162,12 +176,19 @@ function CustomPortalContent() {
                   
                   setWorkspaceData(fallbackData)
                   
-                  // Load agents for this workspace
-                  const agentsResponse = await fetch(`${API_BASE_URL}/api/v1/core/workspaces/${matchingWorkspace.id}/agents/`)
-                  const agentsData = await agentsResponse.json()
-                  setAgents(agentsData.results || [])
+                  // Check portal status to get available agents
+                  const statusResponse = await fetch(`${API_BASE_URL}/api/v1/core/workspace/${matchingWorkspace.id}/portal-status/`)
+                  if (statusResponse.ok) {
+                    const statusData = await statusResponse.json()
+                    
+                    if (statusData.status === 'active' && statusData.active_agent) {
+                      setAgents([statusData.active_agent])
+                    } else {
+                      setAgents([])
+                    }
+                  }
                   
-                  console.log('Portal resolved via fallback with agents:', fallbackData, agentsData)
+                  console.log('Portal resolved via fallback:', fallbackData)
                 } else {
                   setError('Portal not found. Please check the URL and try again.')
                 }

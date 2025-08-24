@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef } from 'react'
 import { Send, Paperclip, Mic, MicOff, Bot, User, FileText, Volume2, X } from 'lucide-react'
-import { getMessages, sendMessage, getSessionMessages, sendSessionMessage, uploadFile, uploadAudio, getSessionToken, type Message } from '@/lib/api'
+import { getMessages, sendMessage, getSessionMessages, sendSessionMessage, uploadFile, uploadAudio, getSessionToken, startTypingIndicator, stopTypingIndicator, type Message } from '@/lib/api'
 import { formatMessageTime, formatFileSize, getMessageIcon, getStatusIcon, getErrorMessage } from '@/lib/utils'
 
 interface ChatInterfaceProps {
@@ -109,6 +109,15 @@ export default function ChatInterface({ sessionData, selectedAgent }: ChatInterf
     setError('')
     setIsLoading(true)
     setIsTyping(true)
+    
+    // Start typing indicator with agent name
+    try {
+      if (sessionData?.contact_id) {
+        await startTypingIndicator(sessionData.contact_id, selectedAgent?.name)
+      }
+    } catch (error) {
+      console.warn('Failed to start typing indicator:', error)
+    }
 
     try {
       // Use session-based API if sessionData is available (portal clients)
@@ -169,6 +178,14 @@ export default function ChatInterface({ sessionData, selectedAgent }: ChatInterf
         
         if (hasNewAssistantMessage || attempts >= maxAttempts) {
           setIsTyping(false)
+          // Stop typing indicator
+          try {
+            if (sessionData?.contact_id) {
+              await stopTypingIndicator(sessionData.contact_id)
+            }
+          } catch (error) {
+            console.warn('Failed to stop typing indicator:', error)
+          }
         } else {
           // Check again in 1 second
           setTimeout(checkForResponse, 1000)
@@ -181,6 +198,14 @@ export default function ChatInterface({ sessionData, selectedAgent }: ChatInterf
     } catch (error) {
       setError(getErrorMessage(error))
       setIsTyping(false)
+      // Stop typing indicator on error
+      try {
+        if (sessionData?.contact_id) {
+          await stopTypingIndicator(sessionData.contact_id)
+        }
+      } catch (stopError) {
+        console.warn('Failed to stop typing indicator on error:', stopError)
+      }
     } finally {
       setIsLoading(false)
     }
@@ -339,10 +364,15 @@ export default function ChatInterface({ sessionData, selectedAgent }: ChatInterf
               <Bot className="w-5 h-5 text-white" />
             </div>
             <div className="bg-white/90 backdrop-blur-sm rounded-2xl rounded-bl-md px-4 py-3 shadow-lg border border-gray-200/50 max-w-xs">
-              <div className="typing-indicator">
-                <div className="typing-dot bg-blue-500"></div>
-                <div className="typing-dot bg-blue-500"></div>
-                <div className="typing-dot bg-blue-500"></div>
+              <div className="flex items-center space-x-2">
+                <span className="text-sm text-gray-600 font-medium">
+                  {selectedAgent?.name || 'AI Assistant'} is typing
+                </span>
+                <div className="typing-indicator">
+                  <div className="typing-dot bg-blue-500"></div>
+                  <div className="typing-dot bg-blue-500"></div>
+                  <div className="typing-dot bg-blue-500"></div>
+                </div>
               </div>
             </div>
           </div>

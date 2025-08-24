@@ -1,10 +1,18 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { Button } from '@/components/ui/button'
+import { 
+  Share2, 
+  Copy, 
+  Check, 
+  Share, 
+  ExternalLink, 
+  User, 
+  Building,
+  Bot
+} from 'lucide-react'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Alert, AlertDescription } from '@/components/ui/alert'
-import { Copy, ExternalLink, QrCode, Share2, Check, Building, User } from 'lucide-react'
 
 // API Configuration
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE || 'http://localhost:8000'
@@ -13,11 +21,31 @@ interface PortalLinkGeneratorProps {
   workspaceId: string
 }
 
-interface PortalData {
+interface AgentLink {
+  id: string
+  name: string
+  description: string
+  slug: string
+  is_active: boolean
+  is_default: boolean
+  channel_type: string
   portal_url: string
-  portal_slug: string
-  workspace_id: string
   qr_code_url: string
+}
+
+interface PortalData {
+  workspace_id: string
+  workspace_name: string
+  workspace_slug: string
+  main_portal_url?: string
+  default_agent?: {
+    id: string
+    name: string
+    slug: string
+  }
+  agent_links: AgentLink[]
+  active_agents_count: number
+  total_agents_count: number
   instructions: string
   is_business_user: boolean
   user_info: {
@@ -71,18 +99,16 @@ export default function PortalLinkGenerator({ workspaceId }: PortalLinkGenerator
     }
   }
 
-  const copyToClipboard = async () => {
-    if (!portalData?.portal_url) return
-
+  const copyToClipboard = async (url: string) => {
     try {
-      await navigator.clipboard.writeText(portalData.portal_url)
+      await navigator.clipboard.writeText(url)
       setCopied(true)
       setTimeout(() => setCopied(false), 2000)
     } catch (error) {
       console.error('Failed to copy to clipboard:', error)
       // Fallback for older browsers
       const textArea = document.createElement('textarea')
-      textArea.value = portalData.portal_url
+      textArea.value = url
       document.body.appendChild(textArea)
       textArea.select()
       document.execCommand('copy')
@@ -92,22 +118,20 @@ export default function PortalLinkGenerator({ workspaceId }: PortalLinkGenerator
     }
   }
 
-  const shareLink = async () => {
-    if (!portalData?.portal_url) return
-
+  const shareLink = async (url: string, agentName?: string) => {
     if (navigator.share) {
       try {
         await navigator.share({
-          title: 'Chat with our AI Assistant',
+          title: `Chat with ${agentName || 'our AI Assistant'}`,
           text: 'Start a conversation with our AI assistant using this link:',
-          url: portalData.portal_url,
+          url: url,
         })
       } catch (error) {
         console.error('Error sharing:', error)
       }
     } else {
       // Fallback to copy
-      copyToClipboard()
+      copyToClipboard(url)
     }
   }
 
@@ -115,13 +139,15 @@ export default function PortalLinkGenerator({ workspaceId }: PortalLinkGenerator
     return (
       <Card>
         <CardHeader>
-          <CardTitle>Portal Link</CardTitle>
-          <CardDescription>Generate a link for your clients to access the chat</CardDescription>
+          <CardTitle className="flex items-center">
+            <Share2 className="w-5 h-5 mr-2" />
+            Portal Links
+          </CardTitle>
         </CardHeader>
         <CardContent>
           <div className="flex items-center justify-center py-8">
             <div className="w-6 h-6 border-2 border-blue-600 border-t-transparent rounded-full animate-spin mr-3"></div>
-            <span className="text-gray-600">Generating portal link...</span>
+            Generating portal links...
           </div>
         </CardContent>
       </Card>
@@ -133,10 +159,10 @@ export default function PortalLinkGenerator({ workspaceId }: PortalLinkGenerator
       <CardHeader>
         <CardTitle className="flex items-center">
           <Share2 className="w-5 h-5 mr-2" />
-          Portal Link
+          Portal Links
         </CardTitle>
         <CardDescription>
-          Share this link with your clients to start conversations with your AI assistant
+          Share these links with your clients to start conversations with your AI agents
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
@@ -148,7 +174,7 @@ export default function PortalLinkGenerator({ workspaceId }: PortalLinkGenerator
 
         {portalData && (
           <>
-            {/* Portal Info */}
+            {/* Workspace Info */}
             <div className="bg-gradient-to-r from-blue-50 to-indigo-50 border border-blue-200 rounded-lg p-4 mb-4">
               <div className="flex items-center mb-2">
                 {portalData.is_business_user ? (
@@ -157,118 +183,167 @@ export default function PortalLinkGenerator({ workspaceId }: PortalLinkGenerator
                   <User className="w-5 h-5 text-blue-600 mr-2" />
                 )}
                 <h4 className="text-sm font-medium text-blue-900">
-                  {portalData.is_business_user ? 'Business Portal' : 'Personal Portal'}
+                  {portalData.workspace_name}
                 </h4>
               </div>
               <div className="text-sm text-blue-800 space-y-1">
-                {portalData.is_business_user ? (
-                  <>
-                    <p><strong>Business:</strong> {portalData.user_info.business_name}</p>
-                    <p><strong>Representative:</strong> {portalData.user_info.full_name}</p>
-                  </>
-                ) : (
-                  <p><strong>Owner:</strong> {portalData.user_info.full_name}</p>
+                <p><strong>Agents:</strong> {portalData.active_agents_count} active, {portalData.total_agents_count} total</p>
+                {portalData.default_agent && (
+                  <p><strong>Default Agent:</strong> {portalData.default_agent.name}</p>
                 )}
-                <p><strong>Assistant:</strong> {portalData.user_info.assistant_name}</p>
-                <p><strong>Custom URL:</strong> <code className="bg-blue-100 px-1 rounded">/portal/{portalData.portal_slug}</code></p>
               </div>
             </div>
 
-            <div className="space-y-3">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Your Custom Portal Link
-                </label>
-                <div className="flex items-center space-x-2">
-                  <input
-                    type="text"
-                    value={portalData.portal_url}
-                    readOnly
-                    className="flex-1 px-3 py-2 border border-gray-300 rounded-lg bg-gray-50 text-sm"
-                  />
-                  <Button
-                    onClick={copyToClipboard}
-                    variant="outline"
-                    size="sm"
-                    className="flex items-center"
-                  >
-                    {copied ? (
-                      <>
-                        <Check className="w-4 h-4 mr-1" />
-                        Copied
-                      </>
-                    ) : (
-                      <>
-                        <Copy className="w-4 h-4 mr-1" />
-                        Copy
-                      </>
-                    )}
-                  </Button>
+            {/* Main Portal Link (if default agent exists) */}
+            {portalData.main_portal_url && portalData.default_agent ? (
+              <div className="space-y-3 mb-6">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Main Portal Link (Default Agent: {portalData.default_agent.name})
+                  </label>
+                  <div className="flex items-center space-x-2">
+                    <input
+                      type="text"
+                      value={portalData.main_portal_url}
+                      readOnly
+                      className="flex-1 px-3 py-2 bg-gray-50 border border-gray-300 rounded-md text-sm"
+                    />
+                    <button
+                      onClick={() => copyToClipboard(portalData.main_portal_url!)}
+                      className="px-3 py-2 bg-blue-600 text-white text-sm rounded-md hover:bg-blue-700 flex items-center"
+                    >
+                      {copied ? (
+                        <>
+                          <Check className="w-4 h-4 mr-1" />
+                          Copied!
+                        </>
+                      ) : (
+                        <>
+                          <Copy className="w-4 h-4 mr-1" />
+                          Copy
+                        </>
+                      )}
+                    </button>
+                  </div>
                 </div>
-                <p className="text-xs text-gray-500 mt-1">
-                  This is your personalized, user-friendly portal URL that clients can easily remember and access.
+
+                <div className="flex space-x-2">
+                  <button
+                    onClick={() => shareLink(portalData.main_portal_url!, portalData.default_agent?.name)}
+                    className="flex-1 px-4 py-2 bg-green-600 text-white text-sm rounded-md hover:bg-green-700 flex items-center justify-center"
+                  >
+                    <Share className="w-4 h-4 mr-2" />
+                    Share Main Link
+                  </button>
+                  <a
+                    href={portalData.main_portal_url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="flex-1 px-4 py-2 bg-gray-600 text-white text-sm rounded-md hover:bg-gray-700 flex items-center justify-center"
+                  >
+                    <ExternalLink className="w-4 h-4 mr-2" />
+                    Test Portal
+                  </a>
+                </div>
+              </div>
+            ) : (
+              <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4 mb-6">
+                <p className="text-yellow-800 text-sm">
+                  <strong>No main portal link available.</strong> Set an agent as default to enable a main portal link.
                 </p>
               </div>
+            )}
 
-              <div className="flex flex-wrap gap-2">
-                <Button
-                  onClick={() => window.open(portalData.portal_url, '_blank')}
-                  variant="outline"
-                  size="sm"
-                  className="flex items-center"
-                >
-                  <ExternalLink className="w-4 h-4 mr-1" />
-                  Test Link
-                </Button>
-                
-                <Button
-                  onClick={shareLink}
-                  variant="outline"
-                  size="sm"
-                  className="flex items-center"
-                >
-                  <Share2 className="w-4 h-4 mr-1" />
-                  Share
-                </Button>
+            {/* Individual Agent Links */}
+            <div className="space-y-4">
+              <h4 className="text-lg font-medium text-gray-900">Individual Agent Links</h4>
+              
+              {portalData.agent_links.length === 0 ? (
+                <div className="text-center py-8 bg-gray-50 rounded-lg">
+                  <Bot className="w-12 h-12 text-gray-400 mx-auto mb-4" />
+                  <p className="text-gray-600">No AI agents created yet.</p>
+                  <p className="text-sm text-gray-500 mt-1">Create agents in the AI Agents tab to generate portal links.</p>
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  {portalData.agent_links.map((agent) => (
+                    <div key={agent.id} className="border border-gray-200 rounded-lg p-4">
+                      <div className="flex items-center justify-between mb-3">
+                        <div className="flex items-center space-x-2">
+                          <h5 className="font-medium text-gray-900">{agent.name}</h5>
+                          {agent.is_default && (
+                            <span className="px-2 py-1 bg-blue-100 text-blue-800 text-xs rounded-full">Default</span>
+                          )}
+                          <span className={`px-2 py-1 text-xs rounded-full ${
+                            agent.is_active 
+                              ? 'bg-green-100 text-green-800' 
+                              : 'bg-red-100 text-red-800'
+                          }`}>
+                            {agent.is_active ? 'Active' : 'Inactive'}
+                          </span>
+                          <span className="px-2 py-1 bg-gray-100 text-gray-700 text-xs rounded-full capitalize">
+                            {agent.channel_type}
+                          </span>
+                        </div>
+                      </div>
+                      
+                      {agent.description && (
+                        <p className="text-sm text-gray-600 mb-3">{agent.description}</p>
+                      )}
 
-                <Button
-                  onClick={() => window.open(portalData.qr_code_url, '_blank')}
-                  variant="outline"
-                  size="sm"
-                  className="flex items-center"
-                >
-                  <QrCode className="w-4 h-4 mr-1" />
-                  QR Code
-                </Button>
-              </div>
+                      <div className="flex items-center space-x-2 mb-2">
+                        <input
+                          type="text"
+                          value={agent.portal_url}
+                          readOnly
+                          className="flex-1 px-3 py-2 bg-gray-50 border border-gray-300 rounded-md text-sm"
+                        />
+                        <button
+                          onClick={() => copyToClipboard(agent.portal_url)}
+                          className="px-3 py-2 bg-blue-600 text-white text-sm rounded-md hover:bg-blue-700 flex items-center"
+                        >
+                          <Copy className="w-4 h-4 mr-1" />
+                          Copy
+                        </button>
+                      </div>
+
+                      <div className="flex space-x-2">
+                        <button
+                          onClick={() => shareLink(agent.portal_url, agent.name)}
+                          className="px-3 py-2 bg-green-600 text-white text-sm rounded-md hover:bg-green-700 flex items-center"
+                        >
+                          <Share className="w-4 h-4 mr-1" />
+                          Share
+                        </button>
+                        <a
+                          href={agent.portal_url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="px-3 py-2 bg-gray-600 text-white text-sm rounded-md hover:bg-gray-700 flex items-center"
+                        >
+                          <ExternalLink className="w-4 h-4 mr-1" />
+                          Test
+                        </a>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
 
-            <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
-              <h4 className="text-sm font-medium text-blue-900 mb-2">Instructions</h4>
-              <p className="text-sm text-blue-800">{portalData.instructions}</p>
-            </div>
-
-            <div className="bg-gray-50 border border-gray-200 rounded-lg p-4">
-              <h4 className="text-sm font-medium text-gray-900 mb-2">How it works</h4>
-              <ul className="text-sm text-gray-700 space-y-1">
-                <li>• <strong>User-friendly URL:</strong> Your portal has a custom, memorable URL based on your {portalData.is_business_user ? 'business and name' : 'name'}</li>
-                <li>• <strong>No authentication required:</strong> Clients can access the portal directly without logging in</li>
-                <li>• <strong>Phone verification:</strong> Clients enter their phone number to identify themselves</li>
-                <li>• <strong>Instant chat:</strong> They can start chatting with your AI assistant immediately</li>
-                <li>• <strong>Conversation history:</strong> All conversations are saved and accessible in your dashboard</li>
-                <li>• <strong>Personalized AI:</strong> The AI uses your business knowledge and preferences</li>
+            {/* Instructions */}
+            <div className="bg-gray-50 rounded-lg p-4">
+              <h4 className="text-sm font-medium text-gray-900 mb-2">
+                How to use your portal links:
+              </h4>
+              <ul className="text-sm text-gray-600 space-y-1">
+                <li>• <strong>Main Portal Link:</strong> Use when you have a default agent set</li>
+                <li>• <strong>Individual Agent Links:</strong> Direct clients to specific AI agents</li>
+                <li>• <strong>Active agents only:</strong> Only active agents will respond to conversations</li>
+                <li>• Share links via email, SMS, social media, or embed on your website</li>
               </ul>
             </div>
           </>
-        )}
-
-        {!portalData && !error && (
-          <div className="text-center py-8">
-            <p className="text-gray-600 mb-4">No portal link available</p>
-            <Button onClick={generatePortalLink} variant="outline">
-              Generate New Link
-            </Button>
-          </div>
         )}
       </CardContent>
     </Card>

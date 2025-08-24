@@ -1,4 +1,5 @@
 from django.db import models
+from django.core.validators import MinValueValidator, MaxValueValidator
 from django.contrib.auth.models import User
 from core.models import Workspace, Conversation, Contact
 import uuid
@@ -1054,11 +1055,14 @@ class BusinessRule(models.Model):
             # Safely get context data
             context_data = context.context_data or {}
             
+            # Ensure trigger_data is a dict, not None
+            safe_trigger_data = trigger_data if isinstance(trigger_data, dict) else {}
+            
             payload = {
                 'rule_name': self.name,
                 'context_id': str(context.id),
                 'conversation_id': str(context.conversation.id),
-                'trigger_data': trigger_data or {},
+                'trigger_data': safe_trigger_data,
                 'context_data': context_data
             }
             
@@ -1084,6 +1088,18 @@ class BusinessRule(models.Model):
                 ).order_by('-created_at').first()
                 
                 if latest_message:
+                    # Check if AI response was already generated for this message
+                    # to prevent duplicate responses
+                    existing_response = Message.objects.filter(
+                        conversation=context.conversation,
+                        sender='assistant',
+                        created_at__gt=latest_message.created_at
+                    ).first()
+                    
+                    if existing_response:
+                        # Response already exists, don't generate another one
+                        return True
+                    
                     # Schedule AI response generation
                     generate_ai_response.delay(str(latest_message.id))
                     return True
@@ -1093,6 +1109,37 @@ class BusinessRule(models.Model):
                 import logging
                 logger = logging.getLogger(__name__)
                 logger.error(f"Failed to generate AI response: {str(e)}")
+                return False
+        
+        elif action_type == 'show_typing_indicator':
+            # Show typing indicator for AI agent
+            try:
+                from messaging.models import Message
+                
+                # Get the latest client message in this conversation
+                latest_message = Message.objects.filter(
+                    conversation=context.conversation,
+                    sender='client'
+                ).order_by('-created_at').first()
+                
+                if latest_message:
+                    # Get agent name for typing indicator
+                    agent_name = "AI Assistant"
+                    if hasattr(context.conversation, 'ai_agent') and context.conversation.ai_agent:
+                        agent_name = context.conversation.ai_agent.name
+                    
+                    # Log typing indicator (frontend will handle the display)
+                    import logging
+                    logger = logging.getLogger(__name__)
+                    logger.info(f"Showing typing indicator for {agent_name} in conversation {context.conversation.id}")
+                    
+                    return True
+                else:
+                    return False
+            except Exception as e:
+                import logging
+                logger = logging.getLogger(__name__)
+                logger.error(f"Failed to show typing indicator: {str(e)}")
                 return False
         
         elif action_type == 'schedule_followup':
@@ -1392,3 +1439,376 @@ class DynamicFieldSuggestion(models.Model):
             return "Low"
         else:
             return "Very Low"
+
+
+# ============================================================================
+# CASE MANAGEMENT MODELS
+# ============================================================================
+
+class ContextCase(models.Model):
+    """Dynamic context case for tracking business data from conversations"""
+    
+    # Core Identification
+    case_id = models.CharField(max_length=100, unique=True, db_index=True)
+    workspace = models.ForeignKey(Workspace, on_delete=models.CASCADE, related_name="context_cases")
+    case_type = models.CharField(max_length=100, db_index=True)  # order, booking, lead, support, etc.
+    
+    # Status Management
+    STATUS_CHOICES = [
+        ("open", "Open"),
+        ("in_progress", "In Progress"),
+        ("pending", "Pending"),
+        ("closed", "Closed"),
+        ("escalated", "Escalated"),
+        ("resolved", "Resolved")
+    ]
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default="open", db_index=True)
+    
+    # Priority Management
+    PRIORITY_CHOICES = [
+        ("low", "Low"),
+        ("medium", "Medium"),
+        ("high", "High"),
+        ("urgent", "Urgent")
+    ]
+    priority = models.CharField(max_length=20, choices=PRIORITY_CHOICES, default="medium", db_index=True)
+    
+    # Dynamic Data Storage
+    extracted_data = models.JSONField(default=dict, db_index=True)
+    business_parameters = models.JSONField(default=dict)
+    matching_criteria = models.JSONField(default=dict)
+    
+    # AI Analysis
+    intent_analysis = models.JSONField(default=dict)
+    confidence_score = models.FloatField(
+        default=0.0, 
+        validators=[MinValueValidator(0.0), MaxValueValidator(1.0)]
+    )
+    last_ai_update = models.DateTimeField(auto_now=True)
+    
+    # Relationships
+    related_messages = models.JSONField(default=list)
+    conversation_id = models.CharField(max_length=100, blank=True, db_index=True)
+    customer_identifier = models.CharField(max_length=200, blank=True, db_index=True)
+    
+    # Duplicate Prevention
+    hash_signature = models.CharField(max_length=64, db_index=True)
+    similarity_threshold = models.FloatField(default=0.8)
+    
+    # Audit Trail
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
+    updated_at = models.DateTimeField(auto_now=True, db_index=True)
+    created_by_ai = models.BooleanField(default=True)
+    manual_override = models.BooleanField(default=False)
+    
+    # Business Context
+    source_channel = models.CharField(max_length=50, blank=True)  # website, email, phone, etc.
+    assigned_agent = models.ForeignKey("core.AIAgent", on_delete=models.SET_NULL, null=True, blank=True)
+    
+    class Meta:
+        indexes = [
+            models.Index(fields=["workspace", "status", "-updated_at"]),
+            models.Index(fields=["workspace", "case_type", "status"]),
+            models.Index(fields=["hash_signature"]),
+            models.Index(fields=["customer_identifier", "workspace"]),
+            models.Index(fields=["conversation_id"]),
+            models.Index(fields=["workspace", "priority", "status"]),
+        ]
+        ordering = ["-updated_at"]
+    
+    def __str__(self):
+        return f"{self.case_id} - {self.case_type} ({self.status})"
+    
+    def save(self, *args, **kwargs):
+        if not self.case_id:
+            self.case_id = self._generate_case_id()
+        super().save(*args, **kwargs)
+    
+    def _generate_case_id(self):
+        """Generate unique case ID based on type and timestamp"""
+        timestamp = self.created_at.strftime("%Y%m%d") if self.created_at else "NEW"
+        case_type_short = self.case_type[:3].upper()
+        unique_suffix = str(uuid.uuid4())[:8].upper()
+        return f"{case_type_short}-{timestamp}-{unique_suffix}"
+    
+    def update_status(self, new_status: str, reason: str = "", manual: bool = False):
+        """Update case status with audit trail"""
+        old_status = self.status
+        self.status = new_status
+        self.manual_override = manual
+        self.save()
+        
+        # Create update record
+        CaseUpdate.objects.create(
+            case=self,
+            update_type="status_change",
+            previous_data={"status": old_status},
+            new_data={"status": new_status, "reason": reason},
+            update_source="manual" if manual else "ai_analysis",
+            confidence_score=1.0 if manual else self.confidence_score
+        )
+    
+    def add_message(self, message_data):
+        """Add related message to case"""
+        if not isinstance(self.related_messages, list):
+            self.related_messages = []
+        
+        message_entry = {
+            "id": str(uuid.uuid4()),
+            "timestamp": message_data.get("timestamp", ""),
+            "content": message_data.get("content", ""),
+            "sender": message_data.get("sender", ""),
+            "message_type": message_data.get("message_type", "text")
+        }
+        
+        self.related_messages.append(message_entry)
+        self.save()
+    
+    def get_extracted_data_summary(self):
+        """Get summary of extracted data for display"""
+        summary = {}
+        for key, value in self.extracted_data.items():
+            if isinstance(value, (str, int, float, bool)):
+                summary[key] = value
+            elif isinstance(value, dict):
+                summary[key] = f"Object with {len(value)} fields"
+            elif isinstance(value, list):
+                summary[key] = f"List with {len(value)} items"
+            else:
+                summary[key] = str(value)
+        return summary
+
+
+class CaseUpdate(models.Model):
+    """Audit trail for case updates and changes"""
+    
+    case = models.ForeignKey(ContextCase, on_delete=models.CASCADE, related_name="updates")
+    update_type = models.CharField(max_length=50, db_index=True)  # status_change, data_update, etc.
+    previous_data = models.JSONField(default=dict)
+    new_data = models.JSONField(default=dict)
+    update_source = models.CharField(max_length=100, db_index=True)  # "ai_analysis", "manual", "rule_engine"
+    confidence_score = models.FloatField(
+        default=0.0,
+        validators=[MinValueValidator(0.0), MaxValueValidator(1.0)]
+    )
+    timestamp = models.DateTimeField(auto_now_add=True, db_index=True)
+    
+    # AI Reasoning
+    ai_reasoning = models.TextField(blank=True)
+    parameters_updated = models.JSONField(default=list)
+    
+    # User Context
+    updated_by = models.CharField(max_length=100, blank=True)  # user_id or "ai_system"
+    notes = models.TextField(blank=True)
+    
+    class Meta:
+        indexes = [
+            models.Index(fields=["case", "-timestamp"]),
+            models.Index(fields=["update_type", "update_source"]),
+        ]
+        ordering = ["-timestamp"]
+    
+    def __str__(self):
+        return f"{self.case.case_id} - {self.update_type} ({self.update_source})"
+
+
+class CaseTypeConfiguration(models.Model):
+    """Configuration for different case types and their data schemas"""
+    
+    workspace = models.ForeignKey(Workspace, on_delete=models.CASCADE, related_name="case_type_configs")
+    case_type = models.CharField(max_length=100, unique=True)
+    display_name = models.CharField(max_length=200)
+    description = models.TextField(blank=True)
+    
+    # Data Schema Definition
+    data_schema = models.JSONField(default=dict)  # Field definitions with types, validation, etc.
+    required_fields = models.JSONField(default=list)
+    optional_fields = models.JSONField(default=list)
+    
+    # Business Rules
+    auto_creation_enabled = models.BooleanField(default=True)
+    duplicate_prevention_enabled = models.BooleanField(default=True)
+    auto_close_conditions = models.JSONField(default=dict)
+    
+    # UI Configuration
+    display_fields = models.JSONField(default=list)  # Fields to show in case list
+    sort_fields = models.JSONField(default=list)     # Fields to use for sorting
+    filter_options = models.JSONField(default=dict)  # Available filter options
+    
+    # Status Workflow
+    status_workflow = models.JSONField(default=list)  # Allowed status transitions
+    default_status = models.CharField(max_length=20, default="open")
+    default_priority = models.CharField(max_length=20, default="medium")
+    
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    is_active = models.BooleanField(default=True)
+    
+    class Meta:
+        indexes = [
+            models.Index(fields=["workspace", "case_type"]),
+            models.Index(fields=["is_active"]),
+        ]
+    
+    def __str__(self):
+        return f"{self.workspace.name} - {self.case_type}"
+    
+    def get_field_definition(self, field_name):
+        """Get definition for a specific field"""
+        return self.data_schema.get(field_name, {})
+    
+    def validate_data(self, data):
+        """Validate data against schema and return validation results"""
+        validation_results = {
+            "is_valid": True,
+            "errors": [],
+            "warnings": [],
+            "validated_data": {}
+        }
+        
+        # Check required fields
+        for field in self.required_fields:
+            if field not in data or not data[field]:
+                validation_results["is_valid"] = False
+                validation_results["errors"].append(f"Required field {field} is missing or empty")
+        
+        # Validate field types and values
+        for field_name, field_value in data.items():
+            field_def = self.get_field_definition(field_name)
+            if field_def:
+                field_type = field_def.get("type", "string")
+                validation = field_def.get("validation", "")
+                
+                # Type validation
+                if field_type == "email" and not self._is_valid_email(field_value):
+                    validation_results["warnings"].append(f"Field {field_name} may not be a valid email")
+                elif field_type == "phone" and not self._is_valid_phone(field_value):
+                    validation_results["warnings"].append(f"Field {field_name} may not be a valid phone number")
+                elif field_type == "number" and not isinstance(field_value, (int, float)):
+                    validation_results["is_valid"] = False
+                    validation_results["errors"].append(f"Field {field_name} must be a number")
+                
+                # Custom validation
+                if validation and not self._validate_custom_rule(field_value, validation):
+                    validation_results["warnings"].append(f"Field {field_name} may not match expected format")
+        
+        validation_results["validated_data"] = data
+        return validation_results
+    
+    def _is_valid_email(self, email):
+        """Basic email validation"""
+        import re
+        pattern = r"^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$"
+        return bool(re.match(pattern, str(email)))
+    
+    def _is_valid_phone(self, phone):
+        """Basic phone validation"""
+        import re
+        # Remove all non-digit characters
+        digits_only = re.sub(r"\D", "", str(phone))
+        return len(digits_only) >= 10
+    
+    def _validate_custom_rule(self, value, rule):
+        """Validate against custom validation rule"""
+        try:
+            import re
+            if rule.startswith("^") and rule.endswith("$"):
+                return bool(re.match(rule, str(value)))
+            elif rule.startswith("min:"):
+                min_val = float(rule.split(":")[1])
+                return float(value) >= min_val
+            elif rule.startswith("max:"):
+                max_val = float(rule.split(":")[1])
+                return float(value) <= max_val
+            return True
+        except:
+            return True
+
+
+class CaseMatchingRule(models.Model):
+    """Rules for matching messages to existing cases"""
+    
+    workspace = models.ForeignKey(Workspace, on_delete=models.CASCADE, related_name="case_matching_rules")
+    rule_name = models.CharField(max_length=200)
+    case_type = models.CharField(max_length=100)
+    
+    # Matching Criteria
+    matching_fields = models.JSONField(default=list)  # Fields to use for matching
+    matching_strategy = models.CharField(max_length=20, choices=[
+        ("exact", "Exact Match"),
+        ("fuzzy", "Fuzzy Match"),
+        ("semantic", "Semantic Similarity"),
+        ("hybrid", "Hybrid Approach")
+    ], default="hybrid")
+    
+    # Thresholds and Weights
+    similarity_threshold = models.FloatField(
+        default=0.8,
+        validators=[MinValueValidator(0.0), MaxValueValidator(1.0)]
+    )
+    field_weights = models.JSONField(default=dict)  # Weight for each matching field
+    
+    # Actions
+    action_on_match = models.CharField(max_length=20, choices=[
+        ("update", "Update Existing Case"),
+        ("create_new", "Create New Case"),
+        ("merge", "Merge Cases"),
+        ("flag_duplicate", "Flag as Duplicate")
+    ], default="update")
+    
+    is_active = models.BooleanField(default=True)
+    priority = models.IntegerField(default=1)  # Higher priority rules are evaluated first
+    
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    
+    class Meta:
+        indexes = [
+            models.Index(fields=["workspace", "case_type"]),
+            models.Index(fields=["is_active", "priority"]),
+        ]
+        ordering = ["-priority", "created_at"]
+    
+    def __str__(self):
+        return f"{self.workspace.name} - {self.rule_name} ({self.case_type})"
+    
+    def get_matching_score(self, message_data, existing_case):
+        """Calculate matching score between message and existing case"""
+        total_score = 0.0
+        total_weight = 0.0
+        
+        for field in self.matching_fields:
+            weight = self.field_weights.get(field, 1.0)
+            total_weight += weight
+            
+            message_value = message_data.get(field, "")
+            case_value = existing_case.extracted_data.get(field, "")
+            
+            if message_value and case_value:
+                field_score = self._calculate_field_similarity(message_value, case_value)
+                total_score += field_score * weight
+        
+        return total_score / total_weight if total_weight > 0 else 0.0
+    
+    def _calculate_field_similarity(self, value1, value2):
+        """Calculate similarity between two field values"""
+        if value1 == value2:
+            return 1.0
+        
+        str1 = str(value1).lower().strip()
+        str2 = str(value2).lower().strip()
+        
+        if str1 == str2:
+            return 1.0
+        
+        # Simple string similarity (can be enhanced with more sophisticated algorithms)
+        if str1 in str2 or str2 in str1:
+            return 0.0
+        
+        # Character-based similarity
+        common_chars = set(str1) & set(str2)
+        total_chars = set(str1) | set(str2)
+        if total_chars:
+            return len(common_chars) / len(total_chars)
+        
+        return 0.0

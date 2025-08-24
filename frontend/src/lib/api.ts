@@ -90,6 +90,32 @@ export const setContactInfo = (info: any) => {
   localStorage.setItem('contact_info', JSON.stringify(info))
 }
 
+// Typing Indicator API
+export const startTypingIndicator = async (conversationId: string, agentName?: string) => {
+  try {
+    const response = await api.post('/api/v1/messaging/typing-indicator/', {
+      conversation_id: conversationId,
+      agent_name: agentName || 'AI Assistant'
+    })
+    return response.data
+  } catch (error) {
+    console.error('Failed to start typing indicator:', error)
+    throw error
+  }
+}
+
+export const stopTypingIndicator = async (conversationId: string) => {
+  try {
+    const response = await api.delete('/api/v1/messaging/typing-indicator/', {
+      data: { conversation_id: conversationId }
+    })
+    return response.data
+  } catch (error) {
+    console.error('Failed to stop typing indicator:', error)
+    throw error
+  }
+}
+
 // API Types
 export interface SessionCreateRequest {
   phone_number: string

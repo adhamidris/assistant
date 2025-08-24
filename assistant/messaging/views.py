@@ -105,8 +105,11 @@ class MessageViewSet(viewsets.ModelViewSet):
                 self._process_message_context(message)
             
             # Trigger AI response if from client and auto-reply is enabled
+            # NOTE: AI response is now handled by context tracking business rules
+            # to avoid duplicate responses. Only trigger here if no context tracking.
             if (message.sender == 'client' and 
-                conversation.workspace.auto_reply_mode):
+                conversation.workspace.auto_reply_mode and
+                not CONTEXT_TRACKING_AVAILABLE):
                 # Import here to avoid circular imports
                 from .tasks import generate_ai_response
                 try:
@@ -408,7 +411,10 @@ def _create_session_message(request, session_token, logger):
                 logger.error(f"Context processing failed: {str(e)}")
         
         # Trigger AI response if auto-reply is enabled
-        if conversation.workspace.auto_reply_mode:
+        # NOTE: AI response is now handled by context tracking business rules
+        # to avoid duplicate responses. Only trigger here if no context tracking.
+        if (conversation.workspace.auto_reply_mode and 
+            not CONTEXT_TRACKING_AVAILABLE):
             from .tasks import generate_ai_response
             try:
                 generate_ai_response.delay(str(message.id))
@@ -672,6 +678,44 @@ class UploadAudioView(APIView):
                 )
         
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+
+class TypingIndicatorView(APIView):
+    """Handle typing indicators for AI agents"""
+    permission_classes = [AllowAny]  # Allow public access for typing indicators
+    
+    def post(self, request):
+        """Start typing indicator for an AI agent"""
+        conversation_id = request.data.get('conversation_id')
+        agent_name = request.data.get('agent_name', 'AI Assistant')
+        
+        if not conversation_id:
+            return Response(
+                {'error': 'Conversation ID required'}, 
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        # Return typing status
+        return Response({
+            'typing': True,
+            'agent_name': agent_name,
+            'message': f'{agent_name} is typing...'
+        })
+    
+    def delete(self, request):
+        """Stop typing indicator"""
+        conversation_id = request.data.get('conversation_id')
+        
+        if not conversation_id:
+            return Response(
+                {'error': 'Conversation ID required'}, 
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        return Response({
+            'typing': False,
+            'message': 'Typing stopped'
+        })
 
 
 class GenerateResponseView(APIView):

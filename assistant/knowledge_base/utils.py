@@ -259,6 +259,115 @@ class VectorSearch:
             logger.error(f"Vector search failed: {e}")
             return []
     
+    def text_based_search(
+        self,
+        query: str,
+        workspace_id: str,
+        limit: int = 5
+    ) -> List[Dict]:
+        """
+        Perform text-based search using PostgreSQL full-text search as fallback
+        
+        Args:
+            query: Search query text
+            workspace_id: Workspace ID to filter results
+            limit: Maximum number of results
+            
+        Returns:
+            List of relevant chunks with metadata
+        """
+        from django.db import connection
+        from django.contrib.postgres.search import SearchVector, SearchQuery, SearchRank
+        from .models import KBChunk, KBDocument
+        
+        try:
+            # Use Django's full-text search capabilities
+            search_vector = SearchVector('text', config='english')
+            search_query = SearchQuery(query, config='english')
+            
+            chunks = KBChunk.objects.annotate(
+                search=search_vector,
+                rank=SearchRank(search_vector, search_query)
+            ).filter(
+                document__workspace_id=workspace_id,
+                search=search_query
+            ).order_by('-rank')[:limit]
+            
+            results = []
+            for chunk in chunks:
+                results.append({
+                    'chunk_id': str(chunk.id),
+                    'text': chunk.text,
+                    'similarity_score': float(chunk.rank) if chunk.rank else 0.0,
+                    'document_title': chunk.document.title,
+                    'document_id': str(chunk.document.id),
+                    'chunk_index': chunk.chunk_index,
+                    'metadata': {
+                        'word_count': chunk.word_count,
+                        'char_count': chunk.char_count,
+                    }
+                })
+            
+            return results
+            
+        except Exception as e:
+            logger.error(f"Text-based search failed: {e}")
+            # Fallback to simple text matching
+            return self.simple_text_search(query, workspace_id, limit)
+    
+    def simple_text_search(
+        self,
+        query: str,
+        workspace_id: str,
+        limit: int = 5
+    ) -> List[Dict]:
+        """
+        Simple text matching fallback when full-text search fails
+        
+        Args:
+            query: Search query text
+            workspace_id: Workspace ID to filter results
+            limit: Maximum number of results
+            
+        Returns:
+            List of relevant chunks with metadata
+        """
+        from .models import KBChunk
+        
+        try:
+            # Simple case-insensitive text matching
+            query_lower = query.lower()
+            chunks = KBChunk.objects.filter(
+                document__workspace_id=workspace_id,
+                text__icontains=query_lower
+            ).select_related('document')[:limit]
+            
+            results = []
+            for chunk in chunks:
+                # Calculate a simple relevance score based on keyword frequency
+                text_lower = chunk.text.lower()
+                word_count = text_lower.count(query_lower)
+                score = min(word_count / max(len(chunk.text.split()), 1), 1.0)
+                
+                results.append({
+                    'chunk_id': str(chunk.id),
+                    'text': chunk.text,
+                    'similarity_score': score,
+                    'document_title': chunk.document.title,
+                    'document_id': str(chunk.document.id),
+                    'chunk_index': chunk.chunk_index,
+                    'metadata': {
+                        'word_count': chunk.word_count,
+                        'char_count': chunk.char_count,
+                    }
+                })
+            
+            return results
+            
+        except Exception as e:
+            logger.error(f"Simple text search failed: {e}")
+            return []
+
     def search_knowledge_base(
         self, 
         query: str, 
@@ -279,17 +388,19 @@ class VectorSearch:
         try:
             # Generate query embedding using DeepSeek
             deepseek_client = DeepSeekClient()
-            # Note: DeepSeek doesn't have embeddings yet, so we'll skip for now
+            # Note: DeepSeek doesn't have embeddings yet, so we'll use text-based search
             query_embedding = None
-            logger.warning("Embeddings not available with DeepSeek - using fallback search")
-            if not query_embedding:
-                logger.error("Failed to generate query embedding")
-                return []
+            logger.warning("Embeddings not available with DeepSeek - using text-based fallback search")
             
-            # Perform similarity search
-            results = self.cosine_similarity_search(
-                query_embedding, workspace_id, limit
-            )
+            if not query_embedding:
+                # Use text-based search as fallback
+                logger.info("Using text-based search for knowledge base query")
+                results = self.text_based_search(query, workspace_id, limit)
+            else:
+                # Perform similarity search
+                results = self.cosine_similarity_search(
+                    query_embedding, workspace_id, limit
+                )
             
             # Log search query for analytics
             SearchQuery.objects.create(

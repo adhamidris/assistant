@@ -78,6 +78,47 @@ class DeepSeekClient:
             logger.error(f"Unexpected error in DeepSeek chat completion: {str(e)}")
             raise
     
+    def generate_chat_response(
+        self, 
+        messages: List[Dict[str, str]], 
+        system_prompt: str = None,
+        max_tokens: int = 1000,
+        temperature: float = 0.7
+    ) -> str:
+        """
+        Generate a chat response using DeepSeek API.
+        
+        Args:
+            messages: List of message objects with 'role' and 'content'
+            system_prompt: System prompt to guide behavior
+            max_tokens: Maximum tokens to generate
+            temperature: Sampling temperature
+            
+        Returns:
+            Generated response text
+        """
+        try:
+            # Add system prompt if provided
+            if system_prompt:
+                messages.insert(0, {"role": "system", "content": system_prompt})
+            
+            # Call the chat completion API
+            response = self.chat_completion(
+                messages=messages,
+                max_tokens=max_tokens,
+                temperature=temperature
+            )
+            
+            # Extract the response text
+            if response and 'choices' in response and len(response['choices']) > 0:
+                return response['choices'][0]['message']['content']
+            else:
+                raise Exception("Invalid response format from DeepSeek API")
+                
+        except Exception as e:
+            logger.error(f"Failed to generate chat response: {str(e)}")
+            raise
+    
     def generate_response(
         self, 
         prompt: str, 

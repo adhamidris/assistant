@@ -220,7 +220,7 @@ def get_user_profile(request):
 @api_view(['GET'])
 @permission_classes([IsAuthenticated])
 def get_portal_link(request):
-    """Generate personalized portal link for the user's clients"""
+    """Generate personalized portal links for the user's AI agents"""
     try:
         user = request.user
         workspace = user.workspaces.first()
@@ -230,16 +230,54 @@ def get_portal_link(request):
                 'error': 'No workspace found for user'
             }, status=status.HTTP_404_NOT_FOUND)
         
+        # Get all agents for this workspace
+        from .models import AIAgent
+        agents = AIAgent.objects.filter(workspace=workspace)
+        default_agent = agents.filter(is_default=True).first()
+        active_agents = agents.filter(is_active=True)
+        
         # Get the app user profile for business info
         app_profile = getattr(user, 'app_profile', None)
         is_business_user = bool(app_profile and app_profile.business_name)
         
+        # Generate agent-specific URLs
+        from django.conf import settings
+        base_url = getattr(settings, 'FRONTEND_BASE_URL', 'http://localhost:3000')
+        workspace_slug = workspace.get_simple_slug()
+        
+        agent_links = []
+        for agent in agents:
+            agent_links.append({
+                'id': str(agent.id),
+                'name': agent.name,
+                'description': agent.description,
+                'slug': agent.slug,
+                'is_active': agent.is_active,
+                'is_default': agent.is_default,
+                'channel_type': agent.channel_type,
+                'portal_url': f"{base_url}/portal/{workspace_slug}/{agent.slug}/",
+                'qr_code_url': f"{request.build_absolute_uri('/')[:-1]}/api/v1/auth/qr-code/{workspace.id}/{agent.slug}/"
+            })
+        
+        # Main portal URL (only if there's a default agent)
+        main_portal_url = None
+        if default_agent:
+            main_portal_url = f"{base_url}/portal/{workspace_slug}/{default_agent.slug}/"
+        
         return Response({
-            'portal_url': workspace.portal_url,
-            'portal_slug': workspace.portal_slug,
             'workspace_id': str(workspace.id),
-            'qr_code_url': f"{request.build_absolute_uri('/')[:-1]}/api/v1/auth/qr-code/{workspace.id}/",
-            'instructions': f"Share this link with your clients to start conversations with {workspace.assistant_name}",
+            'workspace_name': workspace.name,
+            'workspace_slug': workspace_slug,
+            'main_portal_url': main_portal_url,
+            'default_agent': {
+                'id': str(default_agent.id),
+                'name': default_agent.name,
+                'slug': default_agent.slug
+            } if default_agent else None,
+            'agent_links': agent_links,
+            'active_agents_count': active_agents.count(),
+            'total_agents_count': agents.count(),
+            'instructions': f"Share these links with your clients to start conversations with your AI agents",
             'is_business_user': is_business_user,
             'user_info': {
                 'business_name': app_profile.business_name if app_profile else None,

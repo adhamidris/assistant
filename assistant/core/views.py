@@ -9,7 +9,7 @@ from django.utils.text import slugify
 import secrets
 import string
 
-from .models import Workspace, Contact, Session, Conversation
+from .models import Workspace, Contact, Session, Conversation, AIAgent
 from .serializers import (
     WorkspaceSerializer, ContactSerializer, SessionSerializer, 
     ConversationSerializer, CreateSessionSerializer, ValidateSessionSerializer
@@ -331,4 +331,91 @@ def test_portal_resolution(request):
     except Exception as e:
         return Response({
             'error': f'Failed to get workspace data: {str(e)}'
+        }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+@api_view(['GET'])
+@permission_classes([AllowAny])
+def check_portal_status(request, workspace_id):
+    """Check portal status for a workspace - used by portal to determine what to show"""
+    try:
+        workspace = get_object_or_404(Workspace, id=workspace_id)
+        
+        # Check if a specific agent is requested
+        agent_slug = request.GET.get('agent_slug')
+        
+        # Get active agent
+        active_agent = AIAgent.objects.filter(workspace=workspace, is_active=True).first()
+        
+        # Get all agents count
+        total_agents = AIAgent.objects.filter(workspace=workspace).count()
+        inactive_agents = AIAgent.objects.filter(workspace=workspace, is_active=False)
+        
+        # If checking for a specific agent
+        if agent_slug:
+            requested_agent = AIAgent.objects.filter(workspace=workspace, slug=agent_slug).first()
+            if requested_agent and requested_agent.is_active:
+                return Response({
+                    'status': 'active',
+                    'active_agent': {
+                        'id': str(requested_agent.id),
+                        'name': requested_agent.name,
+                        'slug': requested_agent.slug,
+                        'description': requested_agent.description,
+                        'channel_type': requested_agent.channel_type
+                    },
+                    'workspace_name': workspace.name,
+                    'assistant_name': workspace.assistant_name,
+                    'total_agents': total_agents
+                })
+            else:
+                return Response({
+                    'status': 'agent_not_found',
+                    'message': f'Agent "{agent_slug}" not found or inactive',
+                    'workspace_name': workspace.name,
+                    'total_agents': total_agents
+                })
+        
+        # Default behavior for general portal status
+        if active_agent:
+            return Response({
+                'status': 'active',
+                'active_agent': {
+                    'id': str(active_agent.id),
+                    'name': active_agent.name,
+                    'slug': active_agent.slug,
+                    'description': active_agent.description,
+                    'channel_type': active_agent.channel_type
+                },
+                'workspace_name': workspace.name,
+                'assistant_name': workspace.assistant_name,
+                'total_agents': total_agents
+            })
+        elif total_agents > 0:
+            return Response({
+                'status': 'no_active_agent',
+                'message': 'AI assistant is not available at the moment',
+                'workspace_name': workspace.name,
+                'total_agents': total_agents,
+                'inactive_agents': [
+                    {
+                        'id': str(agent.id),
+                        'name': agent.name,
+                        'slug': agent.slug,
+                        'description': agent.description
+                    }
+                    for agent in inactive_agents
+                ]
+            })
+        else:
+            return Response({
+                'status': 'no_agents',
+                'message': 'No AI agents configured',
+                'workspace_name': workspace.name,
+                'total_agents': 0
+            })
+            
+    except Exception as e:
+        return Response({
+            'error': f'Failed to check portal status: {str(e)}'
         }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)

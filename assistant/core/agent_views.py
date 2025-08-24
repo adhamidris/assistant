@@ -17,14 +17,44 @@ class AIAgentViewSet(viewsets.ModelViewSet):
     def get_queryset(self):
         """Get agents for the specified workspace"""
         workspace_slug = self.kwargs.get('workspace_slug')
+        workspace_id = self.kwargs.get('workspace_id')
+        
         if workspace_slug:
             return AIAgent.objects.filter(workspace__slug=workspace_slug)
+        elif workspace_id:
+            return AIAgent.objects.filter(workspace__id=workspace_id)
         return AIAgent.objects.none()
+    
+    @action(detail=False, methods=['get'])
+    def active_agent(self, request, workspace_slug=None, workspace_id=None):
+        """Get the currently active agent for this workspace"""
+        if workspace_slug:
+            workspace = get_object_or_404(Workspace, slug=workspace_slug)
+        elif workspace_id:
+            workspace = get_object_or_404(Workspace, id=workspace_id)
+        else:
+            return Response({'error': 'Workspace identifier required'}, status=status.HTTP_400_BAD_REQUEST)
+        active_agent = AIAgent.objects.filter(workspace=workspace, is_active=True).first()
+        
+        if active_agent:
+            return Response(self.get_serializer(active_agent).data)
+        else:
+            return Response({
+                'message': 'No active agent found for this workspace',
+                'has_agents': AIAgent.objects.filter(workspace=workspace).exists()
+            }, status=status.HTTP_404_NOT_FOUND)
     
     def perform_create(self, serializer):
         """Create agent with workspace assignment"""
         workspace_slug = self.kwargs.get('workspace_slug')
-        workspace = get_object_or_404(Workspace, slug=workspace_slug)
+        workspace_id = self.kwargs.get('workspace_id')
+        
+        if workspace_slug:
+            workspace = get_object_or_404(Workspace, slug=workspace_slug)
+        elif workspace_id:
+            workspace = get_object_or_404(Workspace, id=workspace_id)
+        else:
+            raise serializers.ValidationError("Workspace identifier is required")
         
         # Ensure slug uniqueness within workspace
         slug = serializer.validated_data.get('slug')
@@ -45,7 +75,7 @@ class AIAgentViewSet(viewsets.ModelViewSet):
         serializer.save()
     
     @action(detail=True, methods=['post'])
-    def generate_prompt(self, request, pk=None, workspace_slug=None):
+    def generate_prompt(self, request, pk=None, workspace_slug=None, workspace_id=None):
         """Generate optimized prompt for agent"""
         agent = self.get_object()
         
@@ -76,7 +106,7 @@ Please be helpful and professional in your responses.
             }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
     
     @action(detail=True, methods=['get'])
-    def portal_url(self, request, pk=None, workspace_slug=None):
+    def portal_url(self, request, pk=None, workspace_slug=None, workspace_id=None):
         """Get agent portal URL"""
         agent = self.get_object()
         return Response({
@@ -85,20 +115,31 @@ Please be helpful and professional in your responses.
         })
     
     @action(detail=True, methods=['post'])
-    def toggle_active(self, request, pk=None, workspace_slug=None):
-        """Toggle agent active status"""
+    def toggle_active(self, request, pk=None, workspace_slug=None, workspace_id=None):
+        """Toggle agent active status - only one agent can be active per workspace"""
         agent = self.get_object()
-        agent.is_active = not agent.is_active
-        agent.save()
+        
+        with transaction.atomic():
+            if not agent.is_active:
+                # Activating this agent - deactivate all others in the workspace first
+                AIAgent.objects.filter(workspace=agent.workspace, is_active=True).update(is_active=False)
+                agent.is_active = True
+                message = f'Agent "{agent.name}" activated successfully (other agents deactivated)'
+            else:
+                # Deactivating this agent
+                agent.is_active = False
+                message = f'Agent "{agent.name}" deactivated successfully'
+            
+            agent.save()
         
         return Response({
             'id': agent.id,
             'is_active': agent.is_active,
-            'message': f'Agent {"activated" if agent.is_active else "deactivated"} successfully'
+            'message': message
         })
     
     @action(detail=True, methods=['post'])
-    def set_default(self, request, pk=None, workspace_slug=None):
+    def set_default(self, request, pk=None, workspace_slug=None, workspace_id=None):
         """Set this agent as the default for the workspace"""
         agent = self.get_object()
         
@@ -117,7 +158,7 @@ Please be helpful and professional in your responses.
         })
     
     @action(detail=True, methods=['get'])
-    def performance_metrics(self, request, pk=None, workspace_slug=None):
+    def performance_metrics(self, request, pk=None, workspace_slug=None, workspace_id=None):
         """Get agent performance metrics"""
         agent = self.get_object()
         
@@ -133,7 +174,7 @@ Please be helpful and professional in your responses.
         return Response(metrics)
     
     @action(detail=True, methods=['post'])
-    def assign_schema(self, request, pk=None, workspace_slug=None):
+    def assign_schema(self, request, pk=None, workspace_slug=None, workspace_id=None):
         """Assign a schema to this agent"""
         agent = self.get_object()
         schema_id = request.data.get('schema_id')

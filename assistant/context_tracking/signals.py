@@ -278,7 +278,9 @@ def trigger_business_rules_on_context_change(sender, instance, created, **kwargs
             
             if 'context_data' in update_fields or not update_fields:
                 # Context data might have changed
-                rule_engine.evaluate_context_change(instance, instance.context_data)
+                # Ensure context_data is not None before passing to business rules
+                context_data = instance.context_data or {}
+                rule_engine.evaluate_context_change(instance, context_data)
             
             if 'priority' in update_fields or not update_fields:
                 # Priority might have changed - but we need the old value

@@ -13,6 +13,7 @@ urlpatterns = [
     path('upload-file/', views.UploadFileView.as_view(), name='upload-file'),
     path('generate-response/', views.GenerateResponseView.as_view(), name='generate-response'),
     path('approve-draft/', views.ApproveDraftView.as_view(), name='approve-draft'),
+    path('typing-indicator/', views.TypingIndicatorView.as_view(), name='typing-indicator'),
     
     # AI Analysis endpoints
     path('conversations/<uuid:conversation_id>/analyze-sentiment/', 
